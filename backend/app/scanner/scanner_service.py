@@ -10,8 +10,7 @@ import io
 import time
 import qrcode
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
-from pyzbar import pyzbar
+from dataclasses import dataclass, field
 from PIL import Image
 
 from app.config import settings
@@ -43,7 +42,7 @@ class ScanResult:
     sheet_id: Optional[str] = None
     class_id: Optional[str] = None
     teacher_id: Optional[str] = None
-    question_results: List[QuestionResult] = None
+    question_results: List[QuestionResult] = field(default_factory=list)
     total_questions: int = 0
     correct_count: int = 0
     wrong_count: int = 0
@@ -271,25 +270,30 @@ class AnswerSheetScanner:
         return rect
 
     def _decode_qr_code(self, image: np.ndarray) -> Optional[QRCodeData]:
-        """Decode QR code from warped image"""
-        try:
-            # Try pyzbar first
-            barcodes = pyzbar.decode(image)
-            for barcode in barcodes:
-                if barcode.type == 'QRCODE':
-                    data = barcode.data.decode('utf-8')
-                    return self._parse_qr_data(data)
+        """Decode QR code — crops top-right region first for speed, falls back to full image."""
+        h, w = image.shape[:2]
+        qr_detector = cv2.QRCodeDetector()
 
-            # Fallback: try OpenCV QR detector
-            qr_detector = cv2.QRCodeDetector()
+        # Fast path: scan only the top-right corner where QR is placed
+        crop_x = int(w * 0.6)
+        crop = image[0:int(h * 0.35), crop_x:w]
+        try:
+            data, bbox, _ = qr_detector.detectAndDecode(crop)
+            if data:
+                return self._parse_qr_data(data)
+        except Exception:
+            pass
+
+        # Fallback: scan the full page
+        try:
             data, bbox, _ = qr_detector.detectAndDecode(image)
             if data:
                 return self._parse_qr_data(data)
-
         except Exception as e:
             logger.warning(f"QR code detection failed: {e}")
 
         return None
+
 
     def _parse_qr_data(self, data: str) -> Optional[QRCodeData]:
         """Parse QR code JSON data"""
@@ -436,7 +440,7 @@ class AnswerSheetScanner:
         answer_key: List[str],
         num_questions: int,
         options_per_question: int,
-        warped_image: np.ndarray = None
+        warped_image: Optional[np.ndarray] = None
     ) -> List[QuestionResult]:
         """Grade answers by analyzing bubble fill levels against answer key"""
         results = []
@@ -482,7 +486,7 @@ class AnswerSheetScanner:
 
         return results
 
-    def _calculate_fill_ratio(self, bubble: BubbleInfo, image: np.ndarray = None) -> float:
+    def _calculate_fill_ratio(self, bubble: BubbleInfo, image: Optional[np.ndarray] = None) -> float:
         """Calculate how filled a bubble is using actual pixel analysis when image is available"""
         if image is not None and bubble.w > 0 and bubble.h > 0:
             try:
@@ -618,7 +622,7 @@ class AnswerSheetGenerator:
         img = qr.make_image(fill_color="black", back_color="white")
 
         buffer = io.BytesIO()
-        img.save(buffer, format='PNG')
+        img.save(buffer, 'PNG')
         buffer.seek(0)
 
         qr_size = 100

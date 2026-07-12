@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     scanner_bubble_max_area: int = 500
     scanner_perspective_width: int = 1200
     scanner_perspective_height: int = 1600
+    scanner_fill_threshold: float = 0.30
+    scanner_row_threshold_ratio: float = 0.6   # fraction of avg bubble height
+    scanner_anchor_size_ratio: float = 0.005   # fraction of image area
+    scanner_qr_crop_ratio: float = 0.35        # top-right crop fraction for fast QR
+    scanner_clahe_clip_limit: float = 2.0
+    scanner_clahe_tile_size: int = 8
+    scanner_morph_kernel_size: int = 3
+    scanner_adaptive_block_size: int = 11
+    scanner_adaptive_c: int = 2
+    scanner_min_confidence_gap: float = 0.15   # below this → manual review
 
     # File Upload
     max_file_size: int = 10485760
