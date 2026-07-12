@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: str = Field(
-        default="http://localhost:3000,http://localhost:5173,http://localhost:8000,http://127.0.0.1:5500"
+        default="https://ai-exam-checker.vercel.app,https://ai-exam-checker-gok4z0zgf-jjs-projects-afa9098e.vercel.app"
     )
 
     # Scanner Settings
