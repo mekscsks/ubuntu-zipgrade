@@ -42,7 +42,18 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 1440
 
     # CORS
-    cors_origins: List[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://localhost:5173", "http://localhost:5500", "http://127.0.0.1:5500", "http://localhost:8080"])
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://localhost:5173,http://localhost:8000,http://127.0.0.1:5500"
+    )
+
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse CORS_ORIGINS from comma-separated string or JSON array."""
+        raw = self.cors_origins.strip()
+        if raw.startswith("["):
+            import json
+            return [o.strip() for o in json.loads(raw)]
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
     # Scanner Settings
     scanner_confidence_threshold: float = 0.7
