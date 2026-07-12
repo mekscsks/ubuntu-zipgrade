@@ -2,16 +2,20 @@
 Application Configuration Module
 Centralized configuration management using Pydantic Settings
 """
-import os
-from typing import List, Optional
-from pydantic_settings import BaseSettings
+from typing import List
 from pydantic import Field
-import json
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
 
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
     # App Info
     app_name: str = "AI Exam Checker"
     app_version: str = "1.0.0"
@@ -46,15 +50,6 @@ class Settings(BaseSettings):
         default="http://localhost:3000,http://localhost:5173,http://localhost:8000,http://127.0.0.1:5500"
     )
 
-    @property
-    def cors_origins_list(self) -> List[str]:
-        """Parse CORS_ORIGINS from comma-separated string or JSON array."""
-        raw = self.cors_origins.strip()
-        if raw.startswith("["):
-            import json
-            return [o.strip() for o in json.loads(raw)]
-        return [o.strip() for o in raw.split(",") if o.strip()]
-
     # Scanner Settings
     scanner_confidence_threshold: float = 0.7
     scanner_bubble_min_area: int = 50
@@ -80,10 +75,14 @@ class Settings(BaseSettings):
     default_page_size: int = 20
     max_page_size: int = 100
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    @property
+    def cors_origins_list(self) -> List[str]:
+        """Parse CORS_ORIGINS from comma-separated string or JSON array."""
+        raw = self.cors_origins.strip().strip('"').strip("'")
+        if raw.startswith("["):
+            import json
+            return [o.strip().strip('"').strip("'") for o in json.loads(raw) if o.strip()]
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
     @property
     def firebase_credentials_dict(self) -> dict:

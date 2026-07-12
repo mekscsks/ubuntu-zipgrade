@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting AI Exam Checker API...")
+    logger.info(f"CORS ORIGINS RAW: {settings.cors_origins}")
+    logger.info(f"CORS ORIGINS LIST: {settings.cors_origins_list}")
     initialize_firebase()
     logger.info("Firebase initialized")
     yield
@@ -39,7 +41,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — must be added before all routers
+# Request timing middleware — must be registered BEFORE CORSMiddleware
+# (Starlette executes middleware in reverse registration order;
+#  registering this first means CORSMiddleware runs outermost and handles OPTIONS first)
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    response.headers["X-Process-Time"] = str(round((time.time() - start) * 1000, 2))
+    return response
+
+# CORS — registered last so it executes first (outermost layer)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -48,14 +60,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Process-Time"],
 )
-
-# Request timing middleware
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start = time.time()
-    response = await call_next(request)
-    response.headers["X-Process-Time"] = str(round((time.time() - start) * 1000, 2))
-    return response
 
 # Global exception handler
 @app.exception_handler(Exception)
@@ -73,6 +77,11 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "version": settings.app_version}
+
+
+@app.get("/cors-test")
+async def cors_test():
+    return {"raw": settings.cors_origins, "origins": settings.cors_origins_list}
 
 
 @app.get("/")
