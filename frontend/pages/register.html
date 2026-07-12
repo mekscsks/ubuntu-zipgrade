@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>
+    window.APP_CONFIG = {
+      apiBase: 'http://localhost:8000/api/v1',
+      firebase: {
+        apiKey: "AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",
+        authDomain: "exam-713d5.firebaseapp.com",
+        projectId: "exam-713d5",
+        storageBucket: "exam-713d5.firebasestorage.app",
+        messagingSenderId: "406032768954",
+        appId: "1:406032768954:web:c54c58d7315def8ec7c783"
+      }
+    };
+  </script>
+</head>
+<body>
+<div class="auth-container">
+  <div class="auth-card fade-in">
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="width:56px;height:56px;background:linear-gradient(135deg,#2563EB,#7C3AED);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;color:#fff;font-weight:800;font-size:20px">AI</div>
+      <h1 style="font-size:22px;font-weight:700;color:#1E293B">Create your account</h1>
+      <p style="color:#64748B;font-size:14px;margin-top:4px">Start checking exams smarter</p>
+    </div>
+
+    <div id="error-alert" style="display:none;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px;margin-bottom:16px;color:#DC2626;font-size:13px"></div>
+
+    <form id="register-form">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input type="text" id="display-name" class="form-input" placeholder="John Smith" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">School Name</label>
+          <input type="text" id="school-name" class="form-input" placeholder="My School">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email Address</label>
+        <input type="email" id="email" class="form-input" placeholder="teacher@school.com" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" id="password" class="form-input" placeholder="Min. 8 characters" required minlength="8">
+        <div id="pw-strength" style="margin-top:6px;height:4px;background:#E2E8F0;border-radius:2px;overflow:hidden">
+          <div id="pw-strength-bar" style="height:100%;width:0;transition:width 0.3s,background 0.3s;border-radius:2px"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm Password</label>
+        <input type="password" id="confirm-password" class="form-input" placeholder="Repeat password" required>
+      </div>
+
+      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:20px">
+        <input type="checkbox" id="terms" style="width:16px;height:16px;margin-top:2px;accent-color:#2563EB" required>
+        <label for="terms" style="font-size:12px;color:#64748B;cursor:pointer">
+          I agree to the <a href="#" style="color:#2563EB">Terms of Service</a> and <a href="#" style="color:#2563EB">Privacy Policy</a>
+        </label>
+      </div>
+
+      <button type="submit" id="register-btn" class="btn btn-primary btn-lg" style="width:100%;justify-content:center">
+        Create Account
+      </button>
+    </form>
+
+    <div style="text-align:center;margin-top:20px;font-size:13px;color:#64748B">
+      Already have an account?
+      <a href="login.html" style="color:#2563EB;font-weight:500;margin-left:4px">Sign in</a>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { registerWithEmail } from '../assets/js/auth.js';
+  import { showToast, setLoading } from '../assets/js/ui.js';
+
+  const pwInput = document.getElementById('password');
+  pwInput.addEventListener('input', () => {
+    const v = pwInput.value;
+    const strength = [v.length >= 8, /[A-Z]/.test(v), /[0-9]/.test(v), /[^A-Za-z0-9]/.test(v)].filter(Boolean).length;
+    const bar = document.getElementById('pw-strength-bar');
+    const colors = ['', '#EF4444', '#F59E0B', '#10B981', '#059669'];
+    bar.style.width = `${strength * 25}%`;
+    bar.style.background = colors[strength];
+  });
+
+  document.getElementById('register-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const errorAlert = document.getElementById('error-alert');
+    errorAlert.style.display = 'none';
+
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const confirm = document.getElementById('confirm-password').value;
+    const displayName = document.getElementById('display-name').value.trim();
+    const schoolName = document.getElementById('school-name').value.trim();
+
+    if (password !== confirm) {
+      errorAlert.textContent = 'Passwords do not match';
+      errorAlert.style.display = 'block';
+      return;
+    }
+
+    const btn = document.getElementById('register-btn');
+    setLoading(btn, true, 'Creating account...');
+    try {
+      await registerWithEmail(email, password, displayName, schoolName);
+      showToast('Account created successfully!', 'success');
+      setTimeout(() => window.location.href = 'dashboard.html', 800);
+    } catch (err) {
+      errorAlert.textContent = err.message.includes('email-already-in-use') ? 'Email already registered' : err.message;
+      errorAlert.style.display = 'block';
+      setLoading(btn, false, 'Create Account');
+    }
+  };
+</script>
+</body>
+</html>

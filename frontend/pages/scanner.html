@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scanner - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+<div id="app"></div>
+
+<!-- Result Modal -->
+<div class="modal-overlay" id="result-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h3 style="font-size:16px;font-weight:600">Scan Result</h3>
+      <button onclick="closeModal('result-modal')" class="btn btn-secondary btn-sm">✕</button>
+    </div>
+    <div class="modal-body" id="result-modal-body"></div>
+    <div class="modal-footer">
+      <button onclick="discardResult()" class="btn btn-secondary">Discard</button>
+      <button onclick="saveResult()" class="btn btn-primary" id="save-result-btn">Save Result</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manual Review Modal -->
+<div class="modal-overlay" id="review-modal">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <h3 style="font-size:16px;font-weight:600">Manual Review</h3>
+      <button onclick="closeModal('review-modal')" class="btn btn-secondary btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:#64748B;margin-bottom:16px">Some answers need review. Click to override answers.</p>
+      <div id="review-questions" style="max-height:400px;overflow-y:auto"></div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('review-modal')" class="btn btn-secondary">Cancel</button>
+      <button onclick="submitReview()" class="btn btn-primary">Submit Review</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth } from '../assets/js/auth.js';
+  import { examsApi, scannerApi } from '../assets/js/api.js';
+  import { showToast, openModal, closeModal, formatScore, hideLoader, initDarkMode, setLoading } from '../assets/js/ui.js';
+
+  initDarkMode();
+
+  let stream = null, captureInterval = null;
+  let selectedExamId = null, currentResult = null;
+  let isScanning = false, scanCooldown = false;
+
+  window.closeModal = closeModal;
+  window.discardResult = discardResult;
+  window.saveResult = saveResult;
+  window.submitReview = submitReview;
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Scanner');
+
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+      <div style="max-width:800px;margin:0 auto">
+        <!-- Exam Selection -->
+        <div class="card" style="margin-bottom:16px">
+          <h3 style="font-size:15px;font-weight:600;margin-bottom:12px">Select Exam to Scan</h3>
+          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px">
+              <label class="form-label">Exam</label>
+              <select id="exam-select" class="form-input form-select">
+                <option value="">Loading exams...</option>
+              </select>
+            </div>
+            <div id="exam-info" style="font-size:12px;color:#64748B;padding-bottom:8px"></div>
+          </div>
+        </div>
+
+        <!-- Camera Section -->
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h3 style="font-size:15px;font-weight:600">Camera Scanner</h3>
+            <div style="display:flex;gap:8px">
+              <button id="start-camera-btn" onclick="startCamera()" class="btn btn-primary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                Start Camera
+              </button>
+              <button id="stop-camera-btn" onclick="stopCamera()" class="btn btn-secondary" style="display:none">Stop</button>
+              <label class="btn btn-secondary" style="cursor:pointer">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Upload Image
+                <input type="file" id="upload-input" accept="image/*" style="display:none" onchange="handleUpload(this)">
+              </label>
+            </div>
+          </div>
+
+          <!-- Camera Preview -->
+          <div id="camera-preview" style="display:none;position:relative;background:#000;border-radius:12px;overflow:hidden;max-width:640px;margin:0 auto">
+            <video id="camera-video" autoplay playsinline style="width:100%;display:block"></video>
+            <canvas id="camera-canvas" style="display:none"></canvas>
+            <div class="scan-overlay">
+              <div class="scan-frame"><span></span></div>
+            </div>
+            <div id="scan-status" style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.7);color:#fff;padding:6px 14px;border-radius:20px;font-size:12px;white-space:nowrap">
+              Position answer sheet in frame
+            </div>
+          </div>
+
+          <!-- Scan Controls -->
+          <div id="scan-controls" style="display:none;margin-top:12px;text-align:center">
+            <button id="capture-btn" onclick="captureAndScan()" class="btn btn-primary btn-lg">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+              Capture & Scan
+            </button>
+            <p style="font-size:12px;color:#94A3B8;margin-top:8px">Or hold steady for auto-scan</p>
+          </div>
+
+          <!-- No camera placeholder -->
+          <div id="camera-placeholder" style="text-align:center;padding:40px;color:#94A3B8">
+            <div style="font-size:48px;margin-bottom:12px">📷</div>
+            <p style="font-size:14px;font-weight:500">Camera not started</p>
+            <p style="font-size:12px;margin-top:4px">Click "Start Camera" or upload an image to scan</p>
+          </div>
+        </div>
+
+        <!-- Processing indicator -->
+        <div id="processing-indicator" style="display:none" class="card">
+          <div style="display:flex;align-items:center;gap:12px;justify-content:center;padding:12px">
+            <div class="spinner spinner-dark"></div>
+            <span style="font-size:14px;color:#64748B">Processing answer sheet...</span>
+          </div>
+          <div class="progress-bar" style="margin-top:12px">
+            <div class="progress-fill" id="scan-progress" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Recent Scans -->
+        <div class="card" style="margin-top:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <h3 style="font-size:15px;font-weight:600">Recent Scans</h3>
+            <a href="scan-history.html" class="btn btn-secondary btn-sm">View All</a>
+          </div>
+          <div id="recent-scans"></div>
+        </div>
+      </div>`;
+
+    window.startCamera = startCamera;
+    window.stopCamera = stopCamera;
+    window.captureAndScan = captureAndScan;
+    window.handleUpload = handleUpload;
+
+    await loadExams();
+    await loadRecentScans();
+    hideLoader();
+  }
+
+  async function loadExams() {
+    try {
+      const exams = await examsApi.list(1, '', 'published');
+      const sel = document.getElementById('exam-select');
+      if (!exams.length) {
+        sel.innerHTML = '<option value="">No published exams found</option>';
+        return;
+      }
+      sel.innerHTML = '<option value="">Select exam...</option>' +
+        exams.map(e => `<option value="${e.id}" data-questions="${e.num_questions}" data-passing="${e.passing_score}">${e.title} (${e.num_questions}Q)</option>`).join('');
+
+      sel.onchange = () => {
+        const opt = sel.options[sel.selectedIndex];
+        selectedExamId = sel.value;
+        document.getElementById('exam-info').textContent = selectedExamId
+          ? `${opt.dataset.questions} questions • ${opt.dataset.passing}% passing`
+          : '';
+      };
+    } catch (err) { showToast('Failed to load exams', 'error'); }
+  }
+
+  async function startCamera() {
+    if (!selectedExamId) { showToast('Please select an exam first', 'warning'); return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      const video = document.getElementById('camera-video');
+      video.srcObject = stream;
+
+      document.getElementById('camera-placeholder').style.display = 'none';
+      document.getElementById('camera-preview').style.display = 'block';
+      document.getElementById('scan-controls').style.display = 'block';
+      document.getElementById('start-camera-btn').style.display = 'none';
+      document.getElementById('stop-camera-btn').style.display = 'flex';
+
+      // Auto-scan every 3 seconds
+      captureInterval = setInterval(() => {
+        if (!scanCooldown && !isScanning) autoCapture();
+      }, 3000);
+
+    } catch (err) {
+      showToast('Camera access denied. Please allow camera permission.', 'error');
+    }
+  }
+
+  function stopCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    if (captureInterval) { clearInterval(captureInterval); captureInterval = null; }
+    document.getElementById('camera-placeholder').style.display = 'block';
+    document.getElementById('camera-preview').style.display = 'none';
+    document.getElementById('scan-controls').style.display = 'none';
+    document.getElementById('start-camera-btn').style.display = 'flex';
+    document.getElementById('stop-camera-btn').style.display = 'none';
+  }
+
+  function captureFrame() {
+    const video = document.getElementById('camera-video');
+    const canvas = document.getElementById('camera-canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    return canvas.toDataURL('image/jpeg', 0.9);
+  }
+
+  async function captureAndScan() {
+    if (!selectedExamId) { showToast('Select an exam first', 'warning'); return; }
+    if (isScanning) return;
+    const imageBase64 = captureFrame();
+    await processImage(imageBase64);
+  }
+
+  async function autoCapture() {
+    if (!stream || isScanning || scanCooldown) return;
+    const imageBase64 = captureFrame();
+    await processImage(imageBase64, true);
+  }
+
+  async function handleUpload(input) {
+    if (!selectedExamId) { showToast('Select an exam first', 'warning'); return; }
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => processImage(e.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  async function processImage(imageBase64, isAuto = false) {
+    if (isScanning) return;
+    isScanning = true;
+    scanCooldown = true;
+
+    const indicator = document.getElementById('processing-indicator');
+    const progress = document.getElementById('scan-progress');
+    const status = document.getElementById('scan-status');
+
+    indicator.style.display = 'block';
+    if (status) status.textContent = 'Scanning...';
+
+    // Animate progress
+    let p = 0;
+    const progressInterval = setInterval(() => {
+      p = Math.min(p + 15, 85);
+      progress.style.width = p + '%';
+    }, 200);
+
+    try {
+      const result = await scannerApi.processBase64(selectedExamId, imageBase64);
+      clearInterval(progressInterval);
+      progress.style.width = '100%';
+
+      if (result && (result.student_id || result.correct_count !== undefined)) {
+        currentResult = result;
+        scanCooldown = true;
+        setTimeout(() => { scanCooldown = false; }, 5000);
+        showResultModal(result);
+        if (status) status.textContent = '✓ Scan complete!';
+      } else if (!isAuto) {
+        showToast('Could not read answer sheet. Try better lighting.', 'warning');
+        if (status) status.textContent = 'Position answer sheet in frame';
+      }
+    } catch (err) {
+      clearInterval(progressInterval);
+      if (!isAuto) showToast(err.message, 'error');
+      if (status) status.textContent = 'Position answer sheet in frame';
+    } finally {
+      isScanning = false;
+      setTimeout(() => { indicator.style.display = 'none'; progress.style.width = '0%'; }, 1000);
+      if (!scanCooldown) setTimeout(() => { scanCooldown = false; }, 3000);
+    }
+  }
+
+  function showResultModal(result) {
+    const passed = result.passed;
+    const body = document.getElementById('result-modal-body');
+    body.innerHTML = `
+      <div style="text-align:center;margin-bottom:20px">
+        <div class="score-circle ${passed ? 'pass' : 'fail'}">
+          <div style="font-size:28px;font-weight:700">${result.percentage?.toFixed(1)}%</div>
+          <div style="font-size:12px;font-weight:600">${passed ? 'PASSED' : 'FAILED'}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+        <div style="text-align:center;padding:12px;background:#ECFDF5;border-radius:8px">
+          <div style="font-size:22px;font-weight:700;color:#059669">${result.correct_count}</div>
+          <div style="font-size:11px;color:#64748B">Correct</div>
+        </div>
+        <div style="text-align:center;padding:12px;background:#FEF2F2;border-radius:8px">
+          <div style="font-size:22px;font-weight:700;color:#DC2626">${result.wrong_count}</div>
+          <div style="font-size:11px;color:#64748B">Wrong</div>
+        </div>
+        <div style="text-align:center;padding:12px;background:#F8FAFC;border-radius:8px">
+          <div style="font-size:22px;font-weight:700;color:#64748B">${result.blank_count}</div>
+          <div style="font-size:11px;color:#64748B">Blank</div>
+        </div>
+      </div>
+      ${result.multiple_marks_count > 0 ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px;font-size:13px;color:#92400E;margin-bottom:12px">⚠ ${result.multiple_marks_count} question(s) have multiple marks</div>` : ''}
+      ${result.student_id ? `<div style="font-size:13px;color:#64748B">Student ID: <strong>${result.student_id}</strong></div>` : '<div style="font-size:13px;color:#F59E0B">⚠ Student not identified (QR code not detected)</div>'}
+      <div style="font-size:12px;color:#94A3B8;margin-top:8px">Confidence: ${(result.scan_confidence * 100).toFixed(0)}% • ${result.processing_time_ms}ms</div>
+      ${result.status === 'manual_review' ? `<div style="margin-top:12px"><button onclick="openReviewModal()" class="btn btn-secondary" style="width:100%">🔍 Manual Review</button></div>` : ''}`;
+
+    openModal('result-modal');
+    loadRecentScans();
+  }
+
+  function openReviewModal() {
+    if (!currentResult?.question_results) return;
+    const container = document.getElementById('review-questions');
+    container.innerHTML = currentResult.question_results
+      .filter(q => q.confidence < 0.7 || q.has_multiple_marks || q.is_blank)
+      .map(q => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px;border-bottom:1px solid #F1F5F9">
+          <span style="font-size:13px;font-weight:500;width:30px">Q${q.question_number}</span>
+          <span style="font-size:12px;color:#64748B">Detected: <strong>${q.student_answer || 'blank'}</strong></span>
+          <span style="font-size:12px;color:#64748B">Correct: <strong>${q.correct_answer}</strong></span>
+          <div style="display:flex;gap:4px;margin-left:auto">
+            ${['A','B','C','D','E'].map(opt => `
+              <button type="button" class="bubble-option${q.student_answer === opt ? ' selected' : ''}" 
+                onclick="overrideAnswer(${q.question_number}, '${opt}', this)">${opt}</button>`).join('')}
+            <button type="button" class="bubble-option" onclick="overrideAnswer(${q.question_number}, null, this)" style="font-size:10px">∅</button>
+          </div>
+        </div>`).join('');
+    openModal('review-modal');
+  }
+
+  window.openReviewModal = openReviewModal;
+
+  window.overrideAnswer = (qNum, answer, btn) => {
+    const row = btn.closest('div[style*="display:flex"]');
+    row.querySelectorAll('.bubble-option').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+    const qr = currentResult.question_results.find(q => q.question_number === qNum);
+    if (qr) {
+      qr.student_answer = answer;
+      qr.is_correct = answer === qr.correct_answer;
+      qr.is_blank = !answer;
+    }
+  };
+
+  async function submitReview() {
+    if (!currentResult?.id) { closeModal('review-modal'); return; }
+    try {
+      const { resultsApi } = await import('../assets/js/api.js');
+      await resultsApi.review(currentResult.id, currentResult.question_results, 'Manual review by teacher');
+      showToast('Review saved', 'success');
+      closeModal('review-modal');
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  function discardResult() {
+    currentResult = null;
+    closeModal('result-modal');
+    scanCooldown = false;
+  }
+
+  async function saveResult() {
+    showToast('Result already saved automatically', 'success');
+    closeModal('result-modal');
+    currentResult = null;
+    scanCooldown = false;
+    loadRecentScans();
+  }
+
+  async function loadRecentScans() {
+    try {
+      const history = await scannerApi.history(1);
+      const el = document.getElementById('recent-scans');
+      if (!history.length) {
+        el.innerHTML = '<div style="text-align:center;padding:20px;color:#94A3B8;font-size:13px">No scans yet</div>';
+        return;
+      }
+      el.innerHTML = history.slice(0, 5).map(s => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #F1F5F9">
+          <div>
+            <div style="font-size:13px;font-weight:500">${s.student_name || s.student_id || 'Unknown Student'}</div>
+            <div style="font-size:11px;color:#94A3B8">${s.exam_title || s.exam_id} • ${new Date(s.created_at).toLocaleString()}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${s.percentage !== null && s.percentage !== undefined ? `<span style="font-size:13px;font-weight:600;color:${s.passed ? '#059669' : '#DC2626'}">${s.percentage?.toFixed(1)}%</span>` : ''}
+            <span class="badge ${s.status === 'completed' ? 'badge-green' : s.status === 'failed' ? 'badge-red' : 'badge-yellow'}">${s.status}</span>
+          </div>
+        </div>`).join('');
+    } catch {}
+  }
+
+  init();
+</script>
+</body>
+</html>

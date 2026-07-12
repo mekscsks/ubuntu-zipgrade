@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reports - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+  import { requireAuth } from '../assets/js/auth.js';
+  import { examsApi, classesApi, reportsApi } from '../assets/js/api.js';
+  import { showToast, hideLoader, initDarkMode, setLoading } from '../assets/js/ui.js';
+
+  initDarkMode();
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Reports');
+
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px">
+
+        <!-- Exam Reports -->
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div style="width:40px;height:40px;background:#EFF6FF;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">📝</div>
+            <div>
+              <h3 style="font-size:15px;font-weight:600">Exam Results Report</h3>
+              <p style="font-size:12px;color:#64748B">Export all results for an exam</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Select Exam</label>
+            <select id="exam-select" class="form-input form-select">
+              <option value="">Loading...</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="exportExam('excel')" class="btn btn-success btn-sm">
+              <span>📊</span> Excel
+            </button>
+            <button onclick="exportExam('csv')" class="btn btn-secondary btn-sm">
+              <span>📄</span> CSV
+            </button>
+            <button onclick="exportExam('pdf')" class="btn btn-secondary btn-sm">
+              <span>📑</span> PDF
+            </button>
+          </div>
+        </div>
+
+        <!-- Question Analysis -->
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div style="width:40px;height:40px;background:#F0FDF4;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🔬</div>
+            <div>
+              <h3 style="font-size:15px;font-weight:600">Question Analysis</h3>
+              <p style="font-size:12px;color:#64748B">Difficulty index per question</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Select Exam</label>
+            <select id="qa-exam-select" class="form-input form-select">
+              <option value="">Loading...</option>
+            </select>
+          </div>
+          <button onclick="exportQuestionAnalysis()" class="btn btn-success btn-sm">
+            <span>📊</span> Export Excel
+          </button>
+        </div>
+
+        <!-- Class Report -->
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div style="width:40px;height:40px;background:#FFF7ED;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🏫</div>
+            <div>
+              <h3 style="font-size:15px;font-weight:600">Class Report</h3>
+              <p style="font-size:12px;color:#64748B">All students performance in a class</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Select Class</label>
+            <select id="class-select" class="form-input form-select">
+              <option value="">Loading...</option>
+            </select>
+          </div>
+          <button onclick="exportClassReport()" class="btn btn-success btn-sm">
+            <span>📊</span> Export Excel
+          </button>
+        </div>
+
+        <!-- Student Report -->
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div style="width:40px;height:40px;background:#FDF4FF;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">👤</div>
+            <div>
+              <h3 style="font-size:15px;font-weight:600">Student Report</h3>
+              <p style="font-size:12px;color:#64748B">Individual student exam history</p>
+            </div>
+          </div>
+          <p style="font-size:13px;color:#64748B;margin-bottom:12px">
+            Go to <a href="students.html" style="color:#2563EB">Students</a> page and click a student's profile to export their individual report.
+          </p>
+        </div>
+
+        <!-- Answer Sheets -->
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <div style="width:40px;height:40px;background:#F0F9FF;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px">🖨</div>
+            <div>
+              <h3 style="font-size:15px;font-weight:600">Printable Answer Sheets</h3>
+              <p style="font-size:12px;color:#64748B">Generate PDF answer sheets for printing</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Select Exam</label>
+            <select id="sheet-exam-select" class="form-input form-select">
+              <option value="">Loading...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Select Class</label>
+            <select id="sheet-class-select" class="form-input form-select">
+              <option value="">Loading...</option>
+            </select>
+          </div>
+          <button onclick="generateAnswerSheets()" class="btn btn-primary btn-sm">
+            <span>🖨</span> Generate PDF
+          </button>
+        </div>
+
+      </div>`;
+
+    window.exportExam = exportExam;
+    window.exportQuestionAnalysis = exportQuestionAnalysis;
+    window.exportClassReport = exportClassReport;
+    window.generateAnswerSheets = generateAnswerSheets;
+
+    await loadData();
+    hideLoader();
+  }
+
+  async function loadData() {
+    try {
+      const [exams, classes] = await Promise.all([examsApi.list(1, ''), classesApi.list(1, '')]);
+
+      ['exam-select', 'qa-exam-select', 'sheet-exam-select'].forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = '<option value="">Select exam...</option>' +
+          exams.map(e => `<option value="${e.id}">${e.title}</option>`).join('');
+      });
+
+      ['class-select', 'sheet-class-select'].forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = '<option value="">Select class...</option>' +
+          classes.map(c => `<option value="${c.id}">${c.name} ${c.section}</option>`).join('');
+      });
+    } catch {}
+  }
+
+  async function exportExam(format) {
+    const examId = document.getElementById('exam-select').value;
+    if (!examId) { showToast('Select an exam', 'warning'); return; }
+    showToast('Preparing export...', 'info');
+    try {
+      if (format === 'excel') await reportsApi.examExcel(examId);
+      else if (format === 'csv') await reportsApi.examCsv(examId);
+      else await reportsApi.examPdf(examId);
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function exportQuestionAnalysis() {
+    const examId = document.getElementById('qa-exam-select').value;
+    if (!examId) { showToast('Select an exam', 'warning'); return; }
+    showToast('Preparing export...', 'info');
+    try { await reportsApi.questionAnalysis(examId); }
+    catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function exportClassReport() {
+    const classId = document.getElementById('class-select').value;
+    if (!classId) { showToast('Select a class', 'warning'); return; }
+    showToast('Preparing export...', 'info');
+    try { await reportsApi.classExcel(classId); }
+    catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function generateAnswerSheets() {
+    const examId = document.getElementById('sheet-exam-select').value;
+    const classId = document.getElementById('sheet-class-select').value;
+    if (!examId || !classId) { showToast('Select exam and class', 'warning'); return; }
+    showToast('Generating answer sheets...', 'info');
+    try { await examsApi.batchAnswerSheets(examId, classId); }
+    catch (err) { showToast(err.message, 'error'); }
+  }
+
+  init();
+</script>
+</body>
+</html>

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Students - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="modal-overlay" id="student-modal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <h3 style="font-size:16px;font-weight:600" id="student-modal-title">Add Student</h3>
+      <button onclick="closeModal('student-modal')" class="btn btn-secondary btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group">
+          <label class="form-label">Student Number *</label>
+          <input type="text" id="s-number" class="form-input" placeholder="e.g. 2024-001" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Class *</label>
+          <select id="s-class" class="form-input form-select" required>
+            <option value="">Select class...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">First Name *</label>
+          <input type="text" id="s-first" class="form-input" placeholder="First name" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Last Name *</label>
+          <input type="text" id="s-last" class="form-input" placeholder="Last name" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Section</label>
+          <input type="text" id="s-section" class="form-input" placeholder="e.g. A">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Grade</label>
+          <input type="text" id="s-grade" class="form-input" placeholder="e.g. Grade 10">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" id="s-email" class="form-input" placeholder="student@email.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Phone</label>
+          <input type="tel" id="s-phone" class="form-input" placeholder="+1234567890">
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label class="form-label">Parent/Guardian Name</label>
+          <input type="text" id="s-parent" class="form-input" placeholder="Parent name">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('student-modal')" class="btn btn-secondary">Cancel</button>
+      <button id="save-student-btn" onclick="saveStudent()" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Student Profile Modal -->
+<div class="modal-overlay" id="profile-modal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <h3 style="font-size:16px;font-weight:600">Student Profile</h3>
+      <button onclick="closeModal('profile-modal')" class="btn btn-secondary btn-sm">✕</button>
+    </div>
+    <div class="modal-body" id="profile-modal-body"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth } from '../assets/js/auth.js';
+  import { studentsApi, classesApi, resultsApi, reportsApi } from '../assets/js/api.js';
+  import { showToast, openModal, closeModal, createConfirmModal, renderPagination, formatDateTime, formatScore, debounce, hideLoader, initDarkMode, setLoading } from '../assets/js/ui.js';
+
+  initDarkMode();
+  let currentPage = 1, editingId = null;
+  const params = new URLSearchParams(window.location.search);
+  let filterClassId = params.get('class_id') || '';
+
+  window.closeModal = closeModal;
+  window.saveStudent = saveStudent;
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Students');
+
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="search-input-wrapper">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" id="search-input" class="form-input" placeholder="Search by name or ID..." style="width:220px">
+          </div>
+          <select id="class-filter" class="form-input form-select" style="width:180px">
+            <option value="">All Classes</option>
+          </select>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button onclick="importStudents()" class="btn btn-secondary">📥 Import Excel</button>
+          <button onclick="exportStudents()" class="btn btn-secondary">📤 Export</button>
+          <button onclick="openCreateModal()" class="btn btn-primary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Student
+          </button>
+        </div>
+      </div>
+      <div id="total-count" style="font-size:13px;color:#64748B;margin-bottom:12px"></div>
+      <div class="table-container">
+        <table>
+          <thead><tr>
+            <th>Student #</th><th>Name</th><th>Section</th><th>Grade</th>
+            <th>Class</th><th>Email</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="students-tbody"></tbody>
+        </table>
+      </div>
+      <div id="pagination" style="display:flex;justify-content:center;margin-top:16px" class="pagination"></div>`;
+
+    window.openCreateModal = openCreateModal;
+    window.editStudent = editStudent;
+    window.deleteStudent = deleteStudent;
+    window.viewProfile = viewProfile;
+    window.importStudents = importStudents;
+    window.exportStudents = exportStudents;
+
+    document.getElementById('search-input').addEventListener('input', debounce(() => { currentPage = 1; loadStudents(); }, 400));
+    document.getElementById('class-filter').addEventListener('change', (e) => { filterClassId = e.target.value; currentPage = 1; loadStudents(); });
+
+    await loadClasses();
+    if (filterClassId) document.getElementById('class-filter').value = filterClassId;
+    await loadStudents();
+    hideLoader();
+  }
+
+  async function loadClasses() {
+    try {
+      const classes = await classesApi.list(1, '');
+      const sel = document.getElementById('class-filter');
+      const sSel = document.getElementById('s-class');
+      classes.forEach(c => {
+        sel.innerHTML += `<option value="${c.id}">${c.name} ${c.section}</option>`;
+        sSel.innerHTML += `<option value="${c.id}">${c.name} ${c.section}</option>`;
+      });
+    } catch {}
+  }
+
+  async function loadStudents() {
+    const search = document.getElementById('search-input')?.value || '';
+    const tbody = document.getElementById('students-tbody');
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:#94A3B8">Loading...</td></tr>';
+
+    try {
+      const students = await studentsApi.list(filterClassId, currentPage, search);
+      document.getElementById('total-count').textContent = `${students.length} student(s) found`;
+
+      if (!students.length) {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">👥<p>No students found.</p></div></td></tr>';
+        return;
+      }
+      tbody.innerHTML = students.map(s => `
+        <tr>
+          <td><span style="font-family:monospace;font-size:13px">${s.student_number}</span></td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="width:30px;height:30px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#2563EB;flex-shrink:0">${s.first_name[0]}${s.last_name[0]}</div>
+              <div>
+                <div style="font-weight:500;font-size:13px">${s.first_name} ${s.last_name}</div>
+              </div>
+            </div>
+          </td>
+          <td style="font-size:13px">${s.section || '-'}</td>
+          <td style="font-size:13px">${s.grade || '-'}</td>
+          <td style="font-size:12px;color:#64748B">${s.class_id}</td>
+          <td style="font-size:12px;color:#64748B">${s.email || '-'}</td>
+          <td>
+            <div style="display:flex;gap:4px">
+              <button onclick="viewProfile('${s.id}')" class="btn btn-secondary btn-sm" data-tooltip="Profile">👤</button>
+              <button onclick="editStudent('${s.id}')" class="btn btn-secondary btn-sm" data-tooltip="Edit">✏</button>
+              <button onclick="deleteStudent('${s.id}')" class="btn btn-danger btn-sm" data-tooltip="Delete">🗑</button>
+            </div>
+          </td>
+        </tr>`).join('');
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:#EF4444">${err.message}</td></tr>`;
+    }
+  }
+
+  function openCreateModal() {
+    editingId = null;
+    document.getElementById('student-modal-title').textContent = 'Add Student';
+    ['s-number','s-first','s-last','s-section','s-grade','s-email','s-phone','s-parent'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('s-class').value = filterClassId || '';
+    openModal('student-modal');
+  }
+
+  async function editStudent(id) {
+    try {
+      const s = await studentsApi.get(id);
+      editingId = id;
+      document.getElementById('student-modal-title').textContent = 'Edit Student';
+      document.getElementById('s-number').value = s.student_number;
+      document.getElementById('s-first').value = s.first_name;
+      document.getElementById('s-last').value = s.last_name;
+      document.getElementById('s-class').value = s.class_id;
+      document.getElementById('s-section').value = s.section || '';
+      document.getElementById('s-grade').value = s.grade || '';
+      document.getElementById('s-email').value = s.email || '';
+      document.getElementById('s-phone').value = s.phone || '';
+      document.getElementById('s-parent').value = s.parent_name || '';
+      openModal('student-modal');
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function saveStudent() {
+    const number = document.getElementById('s-number').value.trim();
+    const first = document.getElementById('s-first').value.trim();
+    const last = document.getElementById('s-last').value.trim();
+    const classId = document.getElementById('s-class').value;
+    if (!number || !first || !last || !classId) { showToast('Fill all required fields', 'warning'); return; }
+
+    const data = {
+      student_number: number, first_name: first, last_name: last, class_id: classId,
+      section: document.getElementById('s-section').value.trim() || null,
+      grade: document.getElementById('s-grade').value.trim() || null,
+      email: document.getElementById('s-email').value.trim() || null,
+      phone: document.getElementById('s-phone').value.trim() || null,
+      parent_name: document.getElementById('s-parent').value.trim() || null,
+    };
+    const btn = document.getElementById('save-student-btn');
+    setLoading(btn, true, 'Saving...');
+    try {
+      if (editingId) await studentsApi.update(editingId, data);
+      else await studentsApi.create(data);
+      showToast(editingId ? 'Student updated' : 'Student added', 'success');
+      closeModal('student-modal');
+      loadStudents();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setLoading(btn, false, 'Save'); }
+  }
+
+  async function deleteStudent(id) {
+    createConfirmModal('Delete Student', 'Remove this student? Their exam results will be preserved.', async () => {
+      try { await studentsApi.delete(id); showToast('Student removed', 'success'); loadStudents(); }
+      catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+
+  async function viewProfile(id) {
+    try {
+      const [student, results] = await Promise.all([studentsApi.get(id), resultsApi.byStudent(id)]);
+      const scores = results.map(r => r.percentage);
+      const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : null;
+      const passed = results.filter(r => r.passed).length;
+
+      document.getElementById('profile-modal-body').innerHTML = `
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+          <div style="width:56px;height:56px;border-radius:50%;background:#EFF6FF;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#2563EB">${student.first_name[0]}${student.last_name[0]}</div>
+          <div>
+            <div style="font-size:18px;font-weight:700">${student.first_name} ${student.last_name}</div>
+            <div style="font-size:13px;color:#64748B">${student.student_number} • ${student.grade || ''} ${student.section || ''}</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+          <div style="text-align:center;padding:12px;background:#F8FAFC;border-radius:8px">
+            <div style="font-size:20px;font-weight:700">${results.length}</div>
+            <div style="font-size:11px;color:#64748B">Exams Taken</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:#F8FAFC;border-radius:8px">
+            <div style="font-size:20px;font-weight:700">${avg ? avg + '%' : 'N/A'}</div>
+            <div style="font-size:11px;color:#64748B">Average Score</div>
+          </div>
+          <div style="text-align:center;padding:12px;background:#F8FAFC;border-radius:8px">
+            <div style="font-size:20px;font-weight:700">${results.length ? Math.round(passed/results.length*100) + '%' : 'N/A'}</div>
+            <div style="font-size:11px;color:#64748B">Passing Rate</div>
+          </div>
+        </div>
+        <h4 style="font-size:14px;font-weight:600;margin-bottom:10px">Exam History</h4>
+        ${results.length ? results.slice(0, 10).map(r => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #F1F5F9">
+            <div style="font-size:13px">${r.exam_id}</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:13px;font-weight:600;color:${r.passed ? '#059669' : '#DC2626'}">${r.percentage?.toFixed(1)}%</span>
+              <span class="badge ${r.passed ? 'badge-green' : 'badge-red'}">${r.passed ? 'PASS' : 'FAIL'}</span>
+            </div>
+          </div>`).join('') : '<p style="color:#94A3B8;font-size:13px;text-align:center;padding:20px">No exam results yet</p>'}
+        <div style="margin-top:16px">
+          <button onclick="exportStudentReport('${id}')" class="btn btn-secondary" style="width:100%">📥 Export Report</button>
+        </div>`;
+
+      window.exportStudentReport = async (sid) => {
+        try { await reportsApi.studentExcel(sid); }
+        catch (err) { showToast(err.message, 'error'); }
+      };
+
+      openModal('profile-modal');
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  function importStudents() {
+    if (!filterClassId) { showToast('Select a class filter first', 'warning'); return; }
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.xlsx,.xls';
+    input.onchange = async () => {
+      if (!input.files[0]) return;
+      showToast('Importing...', 'info');
+      try {
+        const result = await classesApi.importStudents(filterClassId, input.files[0]);
+        showToast(`Imported ${result.imported} students`, 'success');
+        loadStudents();
+      } catch (err) { showToast(err.message, 'error'); }
+    };
+    input.click();
+  }
+
+  async function exportStudents() {
+    if (!filterClassId) { showToast('Select a class filter first', 'warning'); return; }
+    try { await classesApi.exportStudents(filterClassId); }
+    catch (err) { showToast(err.message, 'error'); }
+  }
+
+  init();
+</script>
+</body>
+</html>

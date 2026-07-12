@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+  import { requireAuth } from '../assets/js/auth.js';
+  import { examsApi, resultsApi, dashboardApi } from '../assets/js/api.js';
+  import { showToast, hideLoader, initDarkMode } from '../assets/js/ui.js';
+
+  initDarkMode();
+  let charts = {};
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Analytics');
+
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+      <!-- Exam Selector -->
+      <div class="card" style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <label class="form-label" style="margin:0;white-space:nowrap">Analyze Exam:</label>
+          <select id="exam-select" class="form-input form-select" style="flex:1;max-width:400px">
+            <option value="">Select an exam...</option>
+          </select>
+          <button onclick="loadAnalytics()" class="btn btn-primary">Analyze</button>
+        </div>
+      </div>
+
+      <!-- Summary Stats -->
+      <div id="summary-stats" style="display:none">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px" id="analytics-stats"></div>
+
+        <!-- Charts Row 1 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">Score Distribution</h3>
+            <div class="chart-container"><canvas id="dist-chart"></canvas></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">Class Performance</h3>
+            <div class="chart-container"><canvas id="class-chart"></canvas></div>
+          </div>
+        </div>
+
+        <!-- Question Analysis -->
+        <div class="card" style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h3 style="font-size:15px;font-weight:600">Question Analysis</h3>
+            <div style="display:flex;gap:8px">
+              <span class="badge badge-green">Easy (>0.7)</span>
+              <span class="badge badge-yellow">Medium (0.4-0.7)</span>
+              <span class="badge badge-red">Hard (<0.4)</span>
+            </div>
+          </div>
+          <div class="chart-container" style="height:200px"><canvas id="difficulty-chart"></canvas></div>
+        </div>
+
+        <!-- Rankings -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:12px">🏆 Top Students</h3>
+            <div id="top-students"></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:12px">📋 Most Missed Questions</h3>
+            <div id="missed-questions"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Overall Charts (no exam selected) -->
+      <div id="overall-charts">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">Subject Performance</h3>
+            <div class="chart-container"><canvas id="subject-chart"></canvas></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">Score Trend (30 days)</h3>
+            <div class="chart-container"><canvas id="trend-chart"></canvas></div>
+          </div>
+        </div>
+      </div>`;
+
+    window.loadAnalytics = loadAnalytics;
+
+    await loadExams();
+    await loadOverallCharts();
+    hideLoader();
+  }
+
+  async function loadExams() {
+    try {
+      const exams = await examsApi.list(1, '', 'published');
+      const sel = document.getElementById('exam-select');
+      exams.forEach(e => sel.innerHTML += `<option value="${e.id}">${e.title}</option>`);
+    } catch {}
+  }
+
+  async function loadOverallCharts() {
+    try {
+      const [subjectData, trendData] = await Promise.all([
+        dashboardApi.subjectPerformance(),
+        dashboardApi.scoreTrend(30)
+      ]);
+
+      if (subjectData.length) {
+        destroyChart('subject-chart');
+        charts['subject-chart'] = new Chart(document.getElementById('subject-chart').getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: subjectData.map(s => s.subject_name),
+            datasets: [{ label: 'Avg Score %', data: subjectData.map(s => s.average_score), backgroundColor: '#3B82F6', borderRadius: 6 }]
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100 } } }
+        });
+      }
+
+      if (trendData.labels?.length) {
+        destroyChart('trend-chart');
+        charts['trend-chart'] = new Chart(document.getElementById('trend-chart').getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: trendData.labels,
+            datasets: [{ label: 'Avg Score %', data: trendData.data, borderColor: '#2563EB', backgroundColor: 'rgba(37,99,235,0.1)', fill: true, tension: 0.4 }]
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100 } } }
+        });
+      }
+    } catch {}
+  }
+
+  async function loadAnalytics() {
+    const examId = document.getElementById('exam-select').value;
+    if (!examId) { showToast('Select an exam', 'warning'); return; }
+
+    try {
+      const stats = await resultsApi.statistics(examId);
+      document.getElementById('summary-stats').style.display = 'block';
+      document.getElementById('overall-charts').style.display = 'none';
+
+      // Summary stats
+      document.getElementById('analytics-stats').innerHTML = [
+        { label: 'Total Scanned', value: stats.total, color: '#EFF6FF', icon: '📊' },
+        { label: 'Average Score', value: stats.average_score ? stats.average_score + '%' : 'N/A', color: '#F0FDF4', icon: '📈' },
+        { label: 'Highest Score', value: stats.highest_score ? stats.highest_score + '%' : 'N/A', color: '#ECFDF5', icon: '🏆' },
+        { label: 'Lowest Score', value: stats.lowest_score ? stats.lowest_score + '%' : 'N/A', color: '#FEF2F2', icon: '📉' },
+        { label: 'Passing Rate', value: stats.passing_rate ? stats.passing_rate + '%' : 'N/A', color: '#FFFBEB', icon: '✅' },
+      ].map(s => `
+        <div class="stat-card">
+          <div class="stat-icon" style="background:${s.color}"><span style="font-size:20px">${s.icon}</span></div>
+          <div><div style="font-size:20px;font-weight:700">${s.value}</div><div style="font-size:12px;color:#64748B">${s.label}</div></div>
+        </div>`).join('');
+
+      // Score distribution chart
+      if (stats.score_distribution) {
+        destroyChart('dist-chart');
+        charts['dist-chart'] = new Chart(document.getElementById('dist-chart').getContext('2d'), {
+          type: 'doughnut',
+          data: {
+            labels: Object.keys(stats.score_distribution),
+            datasets: [{ data: Object.values(stats.score_distribution), backgroundColor: ['#FEE2E2','#FEF3C7','#DBEAFE','#D1FAE5','#A7F3D0'], borderWidth: 2 }]
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+        });
+      }
+
+      // Difficulty chart
+      if (stats.question_analysis?.length) {
+        const qa = stats.question_analysis;
+        destroyChart('difficulty-chart');
+        charts['difficulty-chart'] = new Chart(document.getElementById('difficulty-chart').getContext('2d'), {
+          type: 'bar',
+          data: {
+            labels: qa.map(q => `Q${q.question_number}`),
+            datasets: [{ label: 'Difficulty Index', data: qa.map(q => q.difficulty_index), backgroundColor: qa.map(q => q.difficulty_index > 0.7 ? '#10B981' : q.difficulty_index > 0.4 ? '#F59E0B' : '#EF4444'), borderRadius: 3 }]
+          },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 1 } } }
+        });
+
+        // Most missed questions
+        const sorted = [...qa].sort((a, b) => a.difficulty_index - b.difficulty_index);
+        document.getElementById('missed-questions').innerHTML = sorted.slice(0, 8).map((q, i) => `
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #F1F5F9">
+            <span style="font-size:12px;color:#94A3B8;width:20px">${i+1}</span>
+            <span style="font-size:13px;font-weight:500">Question ${q.question_number}</span>
+            <div style="flex:1;height:6px;background:#E2E8F0;border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${(1-q.difficulty_index)*100}%;background:#EF4444;border-radius:3px"></div>
+            </div>
+            <span style="font-size:12px;color:#EF4444">${Math.round((1-q.difficulty_index)*100)}% wrong</span>
+          </div>`).join('');
+      }
+
+      // Top students (from results)
+      const results = await resultsApi.byExam(examId);
+      const sorted = [...results].sort((a, b) => b.percentage - a.percentage);
+      document.getElementById('top-students').innerHTML = sorted.slice(0, 8).map((r, i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #F1F5F9">
+          <span style="font-size:14px;font-weight:700;color:${i < 3 ? '#F59E0B' : '#94A3B8'};width:20px">${i+1}</span>
+          <span style="font-size:13px;flex:1">${r.student_number || r.student_id}</span>
+          <span style="font-size:13px;font-weight:600;color:${r.passed ? '#059669' : '#DC2626'}">${r.percentage?.toFixed(1)}%</span>
+        </div>`).join('');
+
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  function destroyChart(id) {
+    if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  }
+
+  init();
+</script>
+</body>
+</html>

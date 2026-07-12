@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subjects - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="modal-overlay" id="subject-modal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <h3 style="font-size:16px;font-weight:600" id="subject-modal-title">Add Subject</h3>
+      <button onclick="closeModal('subject-modal')" class="btn btn-secondary btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Subject Name *</label>
+        <input type="text" id="subject-name" class="form-input" placeholder="e.g. Mathematics" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Subject Code *</label>
+        <input type="text" id="subject-code" class="form-input" placeholder="e.g. MATH101" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea id="subject-desc" class="form-input" rows="2" placeholder="Optional description..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Color</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap" id="color-picker">
+          <button type="button" class="color-btn" data-color="#2563EB" onclick="selectColor('#2563EB')" style="width:28px;height:28px;border-radius:50%;background:#2563EB;border:2px solid transparent;cursor:pointer"></button>
+          <button type="button" class="color-btn" data-color="#7C3AED" onclick="selectColor('#7C3AED')" style="width:28px;height:28px;border-radius:50%;background:#7C3AED;border:2px solid transparent;cursor:pointer"></button>
+          <button type="button" class="color-btn" data-color="#059669" onclick="selectColor('#059669')" style="width:28px;height:28px;border-radius:50%;background:#059669;border:2px solid transparent;cursor:pointer"></button>
+          <button type="button" class="color-btn" data-color="#D97706" onclick="selectColor('#D97706')" style="width:28px;height:28px;border-radius:50%;background:#D97706;border:2px solid transparent;cursor:pointer"></button>
+          <button type="button" class="color-btn" data-color="#DC2626" onclick="selectColor('#DC2626')" style="width:28px;height:28px;border-radius:50%;background:#DC2626;border:2px solid transparent;cursor:pointer"></button>
+          <button type="button" class="color-btn" data-color="#0891B2" onclick="selectColor('#0891B2')" style="width:28px;height:28px;border-radius:50%;background:#0891B2;border:2px solid transparent;cursor:pointer"></button>
+          <button type="button" class="color-btn" data-color="#DB2777" onclick="selectColor('#DB2777')" style="width:28px;height:28px;border-radius:50%;background:#DB2777;border:2px solid transparent;cursor:pointer"></button>
+          <button type="button" class="color-btn" data-color="#65A30D" onclick="selectColor('#65A30D')" style="width:28px;height:28px;border-radius:50%;background:#65A30D;border:2px solid transparent;cursor:pointer"></button>
+        </div>
+        <input type="hidden" id="subject-color" value="#2563EB">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('subject-modal')" class="btn btn-secondary">Cancel</button>
+      <button id="save-subject-btn" onclick="saveSubject()" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth } from '../assets/js/auth.js';
+  import { subjectsApi } from '../assets/js/api.js';
+  import { showToast, openModal, closeModal, createConfirmModal, renderPagination, debounce, hideLoader, initDarkMode, setLoading } from '../assets/js/ui.js';
+
+  initDarkMode();
+  let currentPage = 1, editingId = null;
+
+  window.closeModal = closeModal;
+  window.saveSubject = saveSubject;
+  window.selectColor = selectColor;
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Subjects');
+
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+        <div class="search-input-wrapper">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="search-input" class="form-input" placeholder="Search subjects..." style="width:240px">
+        </div>
+        <button onclick="openCreateModal()" class="btn btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add Subject
+        </button>
+      </div>
+      <div id="subjects-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px"></div>
+      <div id="pagination" style="display:flex;justify-content:center;margin-top:20px" class="pagination"></div>`;
+
+    window.openCreateModal = openCreateModal;
+    window.editSubject = editSubject;
+    window.deleteSubject = deleteSubject;
+
+    document.getElementById('search-input').addEventListener('input', debounce(() => { currentPage = 1; loadSubjects(); }, 400));
+    selectColor('#2563EB');
+    await loadSubjects();
+    hideLoader();
+  }
+
+  async function loadSubjects() {
+    const search = document.getElementById('search-input')?.value || '';
+    const grid = document.getElementById('subjects-grid');
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#94A3B8">Loading...</div>';
+
+    try {
+      const subjects = await subjectsApi.list(currentPage, search);
+      if (!subjects.length) {
+        grid.innerHTML = '<div style="grid-column:1/-1" class="empty-state"><div style="font-size:48px">📚</div><p>No subjects yet. Add your first subject!</p></div>';
+        return;
+      }
+      grid.innerHTML = subjects.map(s => `
+        <div class="card" style="border-left:4px solid ${s.color || '#2563EB'}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <div style="font-size:15px;font-weight:600">${s.name}</div>
+              <div style="font-size:12px;color:#94A3B8;margin-top:2px">${s.code}</div>
+            </div>
+            <div style="display:flex;gap:4px">
+              <button onclick="editSubject('${s.id}')" class="btn btn-secondary btn-sm">✏</button>
+              <button onclick="deleteSubject('${s.id}')" class="btn btn-danger btn-sm">🗑</button>
+            </div>
+          </div>
+          ${s.description ? `<p style="font-size:13px;color:#64748B;margin-bottom:10px">${s.description}</p>` : ''}
+          <div style="display:flex;gap:12px;font-size:12px;color:#94A3B8">
+            <span>📝 ${s.total_exams || 0} exams</span>
+            <span>🏫 ${s.total_classes || 0} classes</span>
+          </div>
+        </div>`).join('');
+    } catch (err) {
+      grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:#EF4444">${err.message}</div>`;
+    }
+  }
+
+  function selectColor(color) {
+    document.getElementById('subject-color').value = color;
+    document.querySelectorAll('.color-btn').forEach(btn => {
+      btn.style.border = btn.dataset.color === color ? '3px solid #1E293B' : '2px solid transparent';
+    });
+  }
+
+  function openCreateModal() {
+    editingId = null;
+    document.getElementById('subject-modal-title').textContent = 'Add Subject';
+    document.getElementById('subject-name').value = '';
+    document.getElementById('subject-code').value = '';
+    document.getElementById('subject-desc').value = '';
+    selectColor('#2563EB');
+    openModal('subject-modal');
+  }
+
+  async function editSubject(id) {
+    try {
+      const s = await subjectsApi.get(id);
+      editingId = id;
+      document.getElementById('subject-modal-title').textContent = 'Edit Subject';
+      document.getElementById('subject-name').value = s.name;
+      document.getElementById('subject-code').value = s.code;
+      document.getElementById('subject-desc').value = s.description || '';
+      selectColor(s.color || '#2563EB');
+      openModal('subject-modal');
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function saveSubject() {
+    const name = document.getElementById('subject-name').value.trim();
+    const code = document.getElementById('subject-code').value.trim();
+    if (!name || !code) { showToast('Name and code are required', 'warning'); return; }
+
+    const data = { name, code, description: document.getElementById('subject-desc').value.trim() || null, color: document.getElementById('subject-color').value };
+    const btn = document.getElementById('save-subject-btn');
+    setLoading(btn, true, 'Saving...');
+    try {
+      if (editingId) await subjectsApi.update(editingId, data);
+      else await subjectsApi.create(data);
+      showToast(editingId ? 'Subject updated' : 'Subject created', 'success');
+      closeModal('subject-modal');
+      loadSubjects();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setLoading(btn, false, 'Save'); }
+  }
+
+  async function deleteSubject(id) {
+    createConfirmModal('Delete Subject', 'Delete this subject? Associated exams will remain.', async () => {
+      try { await subjectsApi.delete(id); showToast('Subject deleted', 'success'); loadSubjects(); }
+      catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+
+  init();
+</script>
+</body>
+</html>

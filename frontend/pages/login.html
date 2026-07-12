@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>
+    window.APP_CONFIG = {
+      apiBase: 'http://localhost:8000/api/v1',
+      firebase: {
+        apiKey: "AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",
+        authDomain: "exam-713d5.firebaseapp.com",
+        projectId: "exam-713d5",
+        storageBucket: "exam-713d5.firebasestorage.app",
+        messagingSenderId: "406032768954",
+        appId: "1:406032768954:web:c54c58d7315def8ec7c783"
+      }
+    };
+  </script>
+</head>
+<body>
+<div class="auth-container">
+  <div class="auth-card fade-in">
+    <!-- Logo -->
+    <div style="text-align:center;margin-bottom:32px">
+      <div style="width:56px;height:56px;background:linear-gradient(135deg,#2563EB,#7C3AED);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;color:#fff;font-weight:800;font-size:20px">AI</div>
+      <h1 style="font-size:22px;font-weight:700;color:#1E293B">Welcome back</h1>
+      <p style="color:#64748B;font-size:14px;margin-top:4px">Sign in to AI Exam Checker</p>
+    </div>
+
+    <!-- Error alert -->
+    <div id="error-alert" style="display:none;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px;margin-bottom:16px;color:#DC2626;font-size:13px"></div>
+
+    <form id="login-form">
+      <div class="form-group">
+        <label class="form-label">Email Address</label>
+        <input type="email" id="email" class="form-input" placeholder="teacher@school.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="display:flex;justify-content:space-between">
+          Password
+          <a href="forgot-password.html" style="color:#2563EB;font-weight:400;font-size:12px">Forgot password?</a>
+        </label>
+        <div style="position:relative">
+          <input type="password" id="password" class="form-input" placeholder="••••••••" required autocomplete="current-password" style="padding-right:40px">
+          <button type="button" id="toggle-pw" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94A3B8;font-size:16px">👁</button>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px">
+        <input type="checkbox" id="remember" style="width:16px;height:16px;accent-color:#2563EB">
+        <label for="remember" style="font-size:13px;color:#64748B;cursor:pointer">Remember me</label>
+      </div>
+
+      <button type="submit" id="login-btn" class="btn btn-primary btn-lg" style="width:100%;justify-content:center">
+        Sign In
+      </button>
+    </form>
+
+    <div style="text-align:center;margin-top:24px;font-size:13px;color:#64748B">
+      Don't have an account?
+      <a href="register.html" style="color:#2563EB;font-weight:500;margin-left:4px">Create account</a>
+    </div>
+
+    <!-- Demo credentials -->
+    <div style="margin-top:20px;padding:12px;background:#F8FAFC;border-radius:8px;border:1px solid #E2E8F0">
+      <p style="font-size:11px;color:#94A3B8;text-align:center;margin-bottom:6px">DEMO CREDENTIALS</p>
+      <p style="font-size:12px;color:#64748B;text-align:center">demo@examchecker.com / demo1234</p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { loginWithEmail } from '../assets/js/auth.js';
+  import { showToast, setLoading } from '../assets/js/ui.js';
+  import { api } from '../assets/js/api.js';
+
+  // Redirect if already logged in
+  if (api.getToken()) window.location.href = 'dashboard.html';
+
+  const form = document.getElementById('login-form');
+  const btn = document.getElementById('login-btn');
+  const errorAlert = document.getElementById('error-alert');
+
+  document.getElementById('toggle-pw').onclick = () => {
+    const pw = document.getElementById('password');
+    pw.type = pw.type === 'password' ? 'text' : 'password';
+  };
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    errorAlert.style.display = 'none';
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+
+    setLoading(btn, true, 'Signing in...');
+    try {
+      const { user } = await loginWithEmail(email, password);
+      showToast('Welcome back!', 'success');
+      setTimeout(() => window.location.href = 'dashboard.html', 500);
+    } catch (err) {
+      errorAlert.textContent = err.message.includes('auth/') ? 'Invalid email or password' : err.message;
+      errorAlert.style.display = 'block';
+      setLoading(btn, false, 'Sign In');
+    }
+  };
+</script>
+</body>
+</html>

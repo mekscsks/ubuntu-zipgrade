@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Classes - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="modal-overlay" id="class-modal">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-header">
+      <h3 style="font-size:16px;font-weight:600" id="class-modal-title">Create Class</h3>
+      <button onclick="closeModal('class-modal')" class="btn btn-secondary btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="grid-column:1/-1">
+          <label class="form-label">Class Name *</label>
+          <input type="text" id="class-name" class="form-input" placeholder="e.g. Grade 10 - Section A" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Section *</label>
+          <input type="text" id="class-section" class="form-input" placeholder="e.g. A" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Grade Level *</label>
+          <input type="text" id="class-grade" class="form-input" placeholder="e.g. Grade 10" required>
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label class="form-label">Subject *</label>
+          <select id="class-subject" class="form-input form-select" required>
+            <option value="">Select subject...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Schedule</label>
+          <input type="text" id="class-schedule" class="form-input" placeholder="e.g. MWF 8:00-9:00">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Room</label>
+          <input type="text" id="class-room" class="form-input" placeholder="e.g. Room 101">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Max Students</label>
+          <input type="number" id="class-max" class="form-input" placeholder="e.g. 40" min="1" max="100">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('class-modal')" class="btn btn-secondary">Cancel</button>
+      <button id="save-class-btn" onclick="saveClass()" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth } from '../assets/js/auth.js';
+  import { classesApi, subjectsApi } from '../assets/js/api.js';
+  import { showToast, openModal, closeModal, createConfirmModal, debounce, hideLoader, initDarkMode, setLoading } from '../assets/js/ui.js';
+
+  initDarkMode();
+  let editingId = null, currentPage = 1;
+
+  window.closeModal = closeModal;
+  window.saveClass = saveClass;
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Classes');
+
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+        <div style="display:flex;gap:8px">
+          <div class="search-input-wrapper">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" id="search-input" class="form-input" placeholder="Search classes..." style="width:220px">
+          </div>
+          <select id="subject-filter" class="form-input form-select" style="width:160px">
+            <option value="">All Subjects</option>
+          </select>
+        </div>
+        <button onclick="openCreateModal()" class="btn btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Create Class
+        </button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead><tr>
+            <th>Class Name</th><th>Section</th><th>Grade</th><th>Subject</th>
+            <th>Students</th><th>Schedule</th><th>Room</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="classes-tbody"></tbody>
+        </table>
+      </div>
+      <div id="pagination" style="display:flex;justify-content:center;margin-top:16px" class="pagination"></div>`;
+
+    window.openCreateModal = openCreateModal;
+    window.editClass = editClass;
+    window.deleteClass = deleteClass;
+    window.viewStudents = viewStudents;
+    window.importStudents = importStudents;
+    window.exportStudents = exportStudents;
+
+    document.getElementById('search-input').addEventListener('input', debounce(() => { currentPage = 1; loadClasses(); }, 400));
+    document.getElementById('subject-filter').addEventListener('change', () => { currentPage = 1; loadClasses(); });
+
+    await loadSubjects();
+    await loadClasses();
+    hideLoader();
+  }
+
+  async function loadSubjects() {
+    try {
+      const subjects = await subjectsApi.list(1, '');
+      const sel = document.getElementById('class-subject');
+      const filter = document.getElementById('subject-filter');
+      subjects.forEach(s => {
+        sel.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+        filter.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+      });
+    } catch {}
+  }
+
+  async function loadClasses() {
+    const search = document.getElementById('search-input')?.value || '';
+    const subjectId = document.getElementById('subject-filter')?.value || '';
+    const tbody = document.getElementById('classes-tbody');
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:#94A3B8">Loading...</td></tr>';
+
+    try {
+      const classes = await classesApi.list(currentPage, search, subjectId);
+      if (!classes.length) {
+        tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">🏫<p>No classes yet. Create your first class!</p></div></td></tr>';
+        return;
+      }
+      tbody.innerHTML = classes.map(c => `
+        <tr>
+          <td><div style="font-weight:500">${c.name}</div></td>
+          <td><span class="badge badge-blue">${c.section}</span></td>
+          <td style="font-size:13px">${c.grade_level}</td>
+          <td style="font-size:13px">${c.subject_id}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:13px;font-weight:500">${c.student_count || 0}</span>
+              ${c.max_students ? `<span style="font-size:11px;color:#94A3B8">/ ${c.max_students}</span>` : ''}
+            </div>
+          </td>
+          <td style="font-size:12px;color:#64748B">${c.schedule || '-'}</td>
+          <td style="font-size:12px;color:#64748B">${c.room || '-'}</td>
+          <td>
+            <div style="display:flex;gap:4px">
+              <button onclick="viewStudents('${c.id}')" class="btn btn-secondary btn-sm" data-tooltip="Students">👥</button>
+              <button onclick="importStudents('${c.id}')" class="btn btn-secondary btn-sm" data-tooltip="Import">📥</button>
+              <button onclick="exportStudents('${c.id}')" class="btn btn-secondary btn-sm" data-tooltip="Export">📤</button>
+              <button onclick="editClass('${c.id}')" class="btn btn-secondary btn-sm" data-tooltip="Edit">✏</button>
+              <button onclick="deleteClass('${c.id}')" class="btn btn-danger btn-sm" data-tooltip="Delete">🗑</button>
+            </div>
+          </td>
+        </tr>`).join('');
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;color:#EF4444">${err.message}</td></tr>`;
+    }
+  }
+
+  function openCreateModal() {
+    editingId = null;
+    document.getElementById('class-modal-title').textContent = 'Create Class';
+    ['class-name','class-section','class-grade','class-schedule','class-room'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('class-subject').value = '';
+    document.getElementById('class-max').value = '';
+    openModal('class-modal');
+  }
+
+  async function editClass(id) {
+    try {
+      const c = await classesApi.get(id);
+      editingId = id;
+      document.getElementById('class-modal-title').textContent = 'Edit Class';
+      document.getElementById('class-name').value = c.name;
+      document.getElementById('class-section').value = c.section;
+      document.getElementById('class-grade').value = c.grade_level;
+      document.getElementById('class-subject').value = c.subject_id;
+      document.getElementById('class-schedule').value = c.schedule || '';
+      document.getElementById('class-room').value = c.room || '';
+      document.getElementById('class-max').value = c.max_students || '';
+      openModal('class-modal');
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function saveClass() {
+    const name = document.getElementById('class-name').value.trim();
+    const section = document.getElementById('class-section').value.trim();
+    const grade = document.getElementById('class-grade').value.trim();
+    const subjectId = document.getElementById('class-subject').value;
+    if (!name || !section || !grade || !subjectId) { showToast('Fill all required fields', 'warning'); return; }
+
+    const data = {
+      name, section, grade_level: grade, subject_id: subjectId,
+      schedule: document.getElementById('class-schedule').value.trim() || null,
+      room: document.getElementById('class-room').value.trim() || null,
+      max_students: parseInt(document.getElementById('class-max').value) || null,
+    };
+    const btn = document.getElementById('save-class-btn');
+    setLoading(btn, true, 'Saving...');
+    try {
+      if (editingId) await classesApi.update(editingId, data);
+      else await classesApi.create(data);
+      showToast(editingId ? 'Class updated' : 'Class created', 'success');
+      closeModal('class-modal');
+      loadClasses();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setLoading(btn, false, 'Save'); }
+  }
+
+  async function deleteClass(id) {
+    createConfirmModal('Delete Class', 'Delete this class? Students will remain in the system.', async () => {
+      try { await classesApi.delete(id); showToast('Class deleted', 'success'); loadClasses(); }
+      catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+
+  function viewStudents(classId) {
+    window.location.href = `students.html?class_id=${classId}`;
+  }
+
+  function importStudents(classId) {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.xlsx,.xls,.csv';
+    input.onchange = async () => {
+      if (!input.files[0]) return;
+      showToast('Importing students...', 'info');
+      try {
+        const result = await classesApi.importStudents(classId, input.files[0]);
+        showToast(`Imported ${result.imported} students${result.errors?.length ? ` (${result.errors.length} errors)` : ''}`, 'success');
+        loadClasses();
+      } catch (err) { showToast(err.message, 'error'); }
+    };
+    input.click();
+  }
+
+  async function exportStudents(classId) {
+    showToast('Preparing export...', 'info');
+    try { await classesApi.exportStudents(classId); }
+    catch (err) { showToast(err.message, 'error'); }
+  }
+
+  init();
+</script>
+</body>
+</html>

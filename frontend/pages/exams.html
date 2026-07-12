@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Exams - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+<div id="app"></div>
+
+<!-- Create/Edit Exam Modal -->
+<div class="modal-overlay" id="exam-modal">
+  <div class="modal" style="max-width:700px">
+    <div class="modal-header">
+      <h3 style="font-size:16px;font-weight:600" id="modal-title">Create Exam</h3>
+      <button onclick="closeModal('exam-modal')" class="btn btn-secondary btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="grid-column:1/-1">
+          <label class="form-label">Exam Title *</label>
+          <input type="text" id="exam-title" class="form-input" placeholder="e.g. Midterm Exam Q1" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Subject *</label>
+          <select id="exam-subject" class="form-input form-select" required>
+            <option value="">Select subject...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Class *</label>
+          <select id="exam-class" class="form-input form-select" required>
+            <option value="">Select class...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Number of Questions *</label>
+          <select id="exam-num-questions" class="form-input form-select" required>
+            <option value="20">20</option><option value="30">30</option><option value="40">40</option>
+            <option value="50" selected>50</option><option value="60">60</option><option value="80">80</option>
+            <option value="100">100</option><option value="150">150</option><option value="200">200</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Passing Score (%)</label>
+          <input type="number" id="exam-passing" class="form-input" value="60" min="0" max="100">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Duration (minutes)</label>
+          <input type="number" id="exam-duration" class="form-input" placeholder="e.g. 60" min="1" max="480">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Paper Size</label>
+          <select id="exam-paper" class="form-input form-select">
+            <option value="A4">A4</option><option value="Legal">Legal</option><option value="Letter">Letter</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label class="form-label">Instructions</label>
+          <textarea id="exam-instructions" class="form-input" rows="2" placeholder="Instructions for students..."></textarea>
+        </div>
+      </div>
+
+      <!-- Answer Key Builder -->
+      <div style="margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <label class="form-label" style="margin:0">Answer Key Builder</label>
+          <div style="display:flex;gap:6px">
+            <button type="button" onclick="fillAnswerKey('A')" class="btn btn-secondary btn-sm">All A</button>
+            <button type="button" onclick="clearAnswerKey()" class="btn btn-secondary btn-sm">Clear</button>
+            <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+              Import CSV <input type="file" accept=".csv,.txt" style="display:none" onchange="importAnswerKey(this)">
+            </label>
+          </div>
+        </div>
+        <div id="answer-key-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;max-height:320px;overflow-y:auto;padding:4px"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('exam-modal')" class="btn btn-secondary">Cancel</button>
+      <button id="save-exam-btn" onclick="saveExam()" class="btn btn-primary">Save Exam</button>
+    </div>
+  </div>
+</div>
+
+<!-- Duplicate Modal -->
+<div class="modal-overlay" id="dup-modal">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h3 style="font-size:16px;font-weight:600">Duplicate Exam</h3>
+      <button onclick="closeModal('dup-modal')" class="btn btn-secondary btn-sm">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">New Exam Title</label>
+        <input type="text" id="dup-title" class="form-input" placeholder="Copy of...">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal('dup-modal')" class="btn btn-secondary">Cancel</button>
+      <button onclick="confirmDuplicate()" class="btn btn-primary">Duplicate</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth } from '../assets/js/auth.js';
+  import { examsApi, subjectsApi, classesApi } from '../assets/js/api.js';
+  import { showToast, openModal, closeModal, createConfirmModal, renderPagination, formatDateTime, getStatusBadge, debounce, renderEmptyState, hideLoader, initDarkMode, setLoading } from '../assets/js/ui.js';
+
+  initDarkMode();
+
+  let currentPage = 1, totalPages = 1, editingId = null, dupId = null;
+  let answerKey = [];
+  let numQuestions = 50;
+
+  window.closeModal = closeModal;
+  window.fillAnswerKey = fillAnswerKey;
+  window.clearAnswerKey = clearAnswerKey;
+  window.importAnswerKey = importAnswerKey;
+  window.saveExam = saveExam;
+  window.confirmDuplicate = confirmDuplicate;
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Exams');
+
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="search-input-wrapper">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" id="search-input" class="form-input" placeholder="Search exams..." style="width:220px">
+          </div>
+          <select id="status-filter" class="form-input form-select" style="width:140px">
+            <option value="">All Status</option>
+            <option value="draft">Draft</option>
+            <option value="published">Published</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <button onclick="openCreateModal()" class="btn btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Create Exam
+        </button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead><tr>
+            <th>Exam Title</th><th>Subject</th><th>Class</th><th>Questions</th>
+            <th>Scans</th><th>Avg Score</th><th>Status</th><th>Created</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="exams-tbody"></tbody>
+        </table>
+      </div>
+      <div id="pagination" style="display:flex;justify-content:center;margin-top:16px" class="pagination"></div>`;
+
+    window.openCreateModal = openCreateModal;
+    window.editExam = editExam;
+    window.deleteExam = deleteExam;
+    window.publishExam = publishExam;
+    window.archiveExam = archiveExam;
+    window.duplicateExam = duplicateExam;
+    window.generateSheets = generateSheets;
+
+    document.getElementById('search-input').addEventListener('input', debounce(() => { currentPage = 1; loadExams(); }, 400));
+    document.getElementById('status-filter').addEventListener('change', () => { currentPage = 1; loadExams(); });
+    document.getElementById('exam-num-questions').addEventListener('change', (e) => { numQuestions = parseInt(e.target.value); buildAnswerKeyGrid(); });
+
+    // Check URL params
+    if (new URLSearchParams(window.location.search).get('action') === 'create') openCreateModal();
+
+    await loadSubjectsAndClasses();
+    await loadExams();
+    hideLoader();
+  }
+
+  async function loadSubjectsAndClasses() {
+    try {
+      const [subjects, classes] = await Promise.all([subjectsApi.list(1, ''), classesApi.list(1, '')]);
+      const subjectSel = document.getElementById('exam-subject');
+      const classSel = document.getElementById('exam-class');
+      subjects.forEach(s => subjectSel.innerHTML += `<option value="${s.id}">${s.name} (${s.code})</option>`);
+      classes.forEach(c => classSel.innerHTML += `<option value="${c.id}">${c.name} ${c.section}</option>`);
+    } catch {}
+  }
+
+  async function loadExams() {
+    const search = document.getElementById('search-input')?.value || '';
+    const status = document.getElementById('status-filter')?.value || '';
+    const tbody = document.getElementById('exams-tbody');
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:#94A3B8">Loading...</td></tr>';
+
+    try {
+      const exams = await examsApi.list(currentPage, search, status);
+      if (!exams.length) {
+        tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">📝<p>No exams found. Create your first exam!</p></div></td></tr>';
+        return;
+      }
+      tbody.innerHTML = exams.map(e => `
+        <tr>
+          <td><div style="font-weight:500">${e.title}</div><div style="font-size:11px;color:#94A3B8">${e.num_questions} questions • ${e.passing_score}% passing</div></td>
+          <td style="font-size:13px">${e.subject_id}</td>
+          <td style="font-size:13px">${e.class_id}</td>
+          <td style="font-size:13px">${e.num_questions}</td>
+          <td style="font-size:13px">${e.total_scans || 0}</td>
+          <td style="font-size:13px">${e.average_score ? e.average_score + '%' : '-'}</td>
+          <td>${getStatusBadge(e.status)}</td>
+          <td style="font-size:12px;color:#94A3B8">${formatDateTime(e.created_at)}</td>
+          <td>
+            <div style="display:flex;gap:4px">
+              ${e.status === 'draft' ? `<button onclick="publishExam('${e.id}')" class="btn btn-success btn-sm" data-tooltip="Publish">▶</button>` : ''}
+              ${e.status === 'published' ? `<button onclick="generateSheets('${e.id}','${e.class_id}')" class="btn btn-secondary btn-sm" data-tooltip="Answer Sheets">🖨</button>` : ''}
+              <button onclick="editExam('${e.id}')" class="btn btn-secondary btn-sm" data-tooltip="Edit">✏</button>
+              <button onclick="duplicateExam('${e.id}','${e.title}')" class="btn btn-secondary btn-sm" data-tooltip="Duplicate">⧉</button>
+              <button onclick="deleteExam('${e.id}')" class="btn btn-danger btn-sm" data-tooltip="Delete">🗑</button>
+            </div>
+          </td>
+        </tr>`).join('');
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:24px;color:#EF4444">${err.message}</td></tr>`;
+    }
+  }
+
+  function buildAnswerKeyGrid() {
+    const grid = document.getElementById('answer-key-grid');
+    if (!grid) return;
+    // Preserve existing answers
+    const existing = [...answerKey];
+    answerKey = Array(numQuestions).fill('');
+    existing.forEach((v, i) => { if (i < numQuestions) answerKey[i] = v; });
+
+    grid.innerHTML = '';
+    for (let i = 0; i < numQuestions; i++) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 6px;background:#F8FAFC;border-radius:6px';
+      row.innerHTML = `<span style="font-size:11px;color:#64748B;width:24px;text-align:right">${i+1}.</span>`;
+      ['A','B','C','D','E'].forEach(opt => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `bubble-option${answerKey[i] === opt ? ' selected' : ''}`;
+        btn.textContent = opt;
+        btn.onclick = () => {
+          answerKey[i] = opt;
+          row.querySelectorAll('.bubble-option').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+        };
+        row.appendChild(btn);
+      });
+      grid.appendChild(row);
+    }
+  }
+
+  function fillAnswerKey(opt) {
+    answerKey = Array(numQuestions).fill(opt);
+    buildAnswerKeyGrid();
+  }
+
+  function clearAnswerKey() {
+    answerKey = Array(numQuestions).fill('');
+    buildAnswerKeyGrid();
+  }
+
+  function importAnswerKey(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const answers = e.target.result.split(/[,\n\r]+/).map(a => a.trim().toUpperCase()).filter(a => /^[A-E]$/.test(a));
+      answerKey = Array(numQuestions).fill('');
+      answers.forEach((a, i) => { if (i < numQuestions) answerKey[i] = a; });
+      buildAnswerKeyGrid();
+      showToast(`Imported ${answers.length} answers`, 'success');
+    };
+    reader.readAsText(file);
+  }
+
+  async function openCreateModal() {
+    editingId = null;
+    answerKey = [];
+    numQuestions = 50;
+    document.getElementById('modal-title').textContent = 'Create Exam';
+    document.getElementById('exam-title').value = '';
+    document.getElementById('exam-subject').value = '';
+    document.getElementById('exam-class').value = '';
+    document.getElementById('exam-num-questions').value = '50';
+    document.getElementById('exam-passing').value = '60';
+    document.getElementById('exam-duration').value = '';
+    document.getElementById('exam-paper').value = 'A4';
+    document.getElementById('exam-instructions').value = '';
+    buildAnswerKeyGrid();
+    openModal('exam-modal');
+  }
+
+  async function editExam(id) {
+    try {
+      const exam = await examsApi.get(id);
+      editingId = id;
+      numQuestions = exam.num_questions;
+      answerKey = [...exam.answer_key];
+      document.getElementById('modal-title').textContent = 'Edit Exam';
+      document.getElementById('exam-title').value = exam.title;
+      document.getElementById('exam-subject').value = exam.subject_id;
+      document.getElementById('exam-class').value = exam.class_id;
+      document.getElementById('exam-num-questions').value = exam.num_questions;
+      document.getElementById('exam-passing').value = exam.passing_score;
+      document.getElementById('exam-duration').value = exam.duration_minutes || '';
+      document.getElementById('exam-paper').value = exam.paper_size;
+      document.getElementById('exam-instructions').value = exam.instructions || '';
+      buildAnswerKeyGrid();
+      openModal('exam-modal');
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function saveExam() {
+    const title = document.getElementById('exam-title').value.trim();
+    const subjectId = document.getElementById('exam-subject').value;
+    const classId = document.getElementById('exam-class').value;
+    numQuestions = parseInt(document.getElementById('exam-num-questions').value);
+
+    if (!title || !subjectId || !classId) { showToast('Please fill all required fields', 'warning'); return; }
+
+    const emptyAnswers = answerKey.filter(a => !a).length;
+    if (emptyAnswers > 0) {
+      if (!confirm(`${emptyAnswers} questions have no answer set. Continue?`)) return;
+    }
+
+    const data = {
+      title,
+      subject_id: subjectId,
+      class_id: classId,
+      num_questions: numQuestions,
+      passing_score: parseFloat(document.getElementById('exam-passing').value) || 60,
+      duration_minutes: parseInt(document.getElementById('exam-duration').value) || null,
+      paper_size: document.getElementById('exam-paper').value,
+      instructions: document.getElementById('exam-instructions').value.trim() || null,
+      answer_key: answerKey.map(a => a || 'A'),
+    };
+
+    const btn = document.getElementById('save-exam-btn');
+    setLoading(btn, true, 'Saving...');
+    try {
+      if (editingId) await examsApi.update(editingId, data);
+      else await examsApi.create(data);
+      showToast(editingId ? 'Exam updated' : 'Exam created', 'success');
+      closeModal('exam-modal');
+      loadExams();
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setLoading(btn, false, 'Save Exam'); }
+  }
+
+  async function publishExam(id) {
+    try {
+      await examsApi.publish(id);
+      showToast('Exam published', 'success');
+      loadExams();
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function archiveExam(id) {
+    createConfirmModal('Archive Exam', 'Archive this exam? It will no longer be scannable.', async () => {
+      try { await examsApi.archive(id); showToast('Exam archived', 'success'); loadExams(); }
+      catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+
+  function duplicateExam(id, title) {
+    dupId = id;
+    document.getElementById('dup-title').value = `Copy of ${title}`;
+    openModal('dup-modal');
+  }
+
+  async function confirmDuplicate() {
+    const title = document.getElementById('dup-title').value.trim();
+    if (!title) { showToast('Enter a title', 'warning'); return; }
+    try {
+      await examsApi.duplicate(dupId, title);
+      showToast('Exam duplicated', 'success');
+      closeModal('dup-modal');
+      loadExams();
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function deleteExam(id) {
+    createConfirmModal('Delete Exam', 'Archive this exam? All results will be preserved.', async () => {
+      try { await examsApi.delete(id); showToast('Exam archived', 'success'); loadExams(); }
+      catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+
+  async function generateSheets(examId, classId) {
+    showToast('Generating answer sheets...', 'info');
+    try {
+      await examsApi.batchAnswerSheets(examId, classId);
+      showToast('Answer sheets downloaded', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  init();
+</script>
+</body>
+</html>

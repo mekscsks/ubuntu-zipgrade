@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+
+<div id="app">
+  <!-- Layout injected by JS -->
+  <div id="dashboard-content" style="display:none">
+
+    <!-- Stat Cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px" id="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#EFF6FF"><span style="font-size:22px">👥</span></div>
+        <div><div style="font-size:24px;font-weight:700" id="stat-students">-</div><div style="font-size:13px;color:#64748B">Total Students</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#F0FDF4"><span style="font-size:22px">🏫</span></div>
+        <div><div style="font-size:24px;font-weight:700" id="stat-classes">-</div><div style="font-size:13px;color:#64748B">Total Classes</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#FFF7ED"><span style="font-size:22px">📚</span></div>
+        <div><div style="font-size:24px;font-weight:700" id="stat-subjects">-</div><div style="font-size:13px;color:#64748B">Total Subjects</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#FDF4FF"><span style="font-size:22px">📝</span></div>
+        <div><div style="font-size:24px;font-weight:700" id="stat-exams">-</div><div style="font-size:13px;color:#64748B">Total Exams</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#ECFDF5"><span style="font-size:22px">📊</span></div>
+        <div><div style="font-size:24px;font-weight:700" id="stat-avg">-</div><div style="font-size:13px;color:#64748B">Average Score</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#FEF2F2"><span style="font-size:22px">⏳</span></div>
+        <div><div style="font-size:24px;font-weight:700" id="stat-pending">-</div><div style="font-size:13px;color:#64748B">Pending Reviews</div></div>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="font-size:15px;font-weight:600">Score Distribution</h3>
+          <select id="dist-days" class="form-input form-select" style="width:auto;padding:4px 28px 4px 8px;font-size:12px">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+        </div>
+        <div class="chart-container"><canvas id="score-dist-chart"></canvas></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="font-size:15px;font-weight:600">Score Trend</h3>
+          <select id="trend-days" class="form-input form-select" style="width:auto;padding:4px 28px 4px 8px;font-size:12px">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+          </select>
+        </div>
+        <div class="chart-container"><canvas id="score-trend-chart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Bottom Row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <!-- Recent Exams -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="font-size:15px;font-weight:600">Recent Exams</h3>
+          <a href="exams.html" class="btn btn-secondary btn-sm">View All</a>
+        </div>
+        <div id="recent-exams-list">
+          <div style="text-align:center;padding:20px;color:#94A3B8;font-size:13px">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Recent Scans -->
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="font-size:15px;font-weight:600">Recent Scans</h3>
+          <a href="scan-history.html" class="btn btn-secondary btn-sm">View All</a>
+        </div>
+        <div id="recent-scans-list">
+          <div style="text-align:center;padding:20px;color:#94A3B8;font-size:13px">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card" style="margin-top:16px">
+      <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">Quick Actions</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        <a href="scanner.html" class="btn btn-primary"><span>📷</span> Scan Answer Sheet</a>
+        <a href="exams.html?action=create" class="btn btn-secondary"><span>➕</span> Create Exam</a>
+        <a href="students.html?action=import" class="btn btn-secondary"><span>📥</span> Import Students</a>
+        <a href="analytics.html" class="btn btn-secondary"><span>📊</span> View Analytics</a>
+        <a href="reports.html" class="btn btn-secondary"><span>📄</span> Export Reports</a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script type="module">
+  import { requireAuth, storeTeacher } from '../assets/js/auth.js';
+  import { dashboardApi, teacherApi } from '../assets/js/api.js';
+  import { formatScore, formatDateTime, getStatusBadge, hideLoader, initDarkMode } from '../assets/js/ui.js';
+
+  initDarkMode();
+
+  let scoreDistChart, scoreTrendChart;
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    // Load teacher data
+    try {
+      const teacher = await teacherApi.me();
+      storeTeacher(teacher);
+    } catch {}
+
+    // Render layout
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Dashboard');
+
+    document.getElementById('dashboard-content').style.display = 'block';
+    document.getElementById('page-content').appendChild(document.getElementById('dashboard-content'));
+
+    hideLoader();
+    loadStats();
+    loadCharts();
+  }
+
+  async function loadStats() {
+    try {
+      const stats = await dashboardApi.stats();
+      document.getElementById('stat-students').textContent = stats.total_students || 0;
+      document.getElementById('stat-classes').textContent = stats.total_classes || 0;
+      document.getElementById('stat-subjects').textContent = stats.total_subjects || 0;
+      document.getElementById('stat-exams').textContent = stats.total_exams || 0;
+      document.getElementById('stat-avg').textContent = stats.average_score ? `${stats.average_score}%` : 'N/A';
+      document.getElementById('stat-pending').textContent = stats.pending_reviews || 0;
+
+      renderRecentExams(stats.recent_exams || []);
+      renderRecentScans(stats.recent_scans || []);
+    } catch (err) {
+      console.error('Stats error:', err);
+    }
+  }
+
+  function renderRecentExams(exams) {
+    const el = document.getElementById('recent-exams-list');
+    if (!exams.length) { el.innerHTML = '<div style="text-align:center;padding:20px;color:#94A3B8;font-size:13px">No exams yet</div>'; return; }
+    el.innerHTML = exams.map(e => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #F1F5F9">
+        <div>
+          <div style="font-size:13px;font-weight:500">${e.title}</div>
+          <div style="font-size:11px;color:#94A3B8">${e.num_questions} questions • ${formatDateTime(e.created_at)}</div>
+        </div>
+        ${getStatusBadge(e.status)}
+      </div>`).join('');
+  }
+
+  function renderRecentScans(scans) {
+    const el = document.getElementById('recent-scans-list');
+    if (!scans.length) { el.innerHTML = '<div style="text-align:center;padding:20px;color:#94A3B8;font-size:13px">No scans yet</div>'; return; }
+    el.innerHTML = scans.map(s => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #F1F5F9">
+        <div>
+          <div style="font-size:13px;font-weight:500">${s.student_name || s.student_id || 'Unknown'}</div>
+          <div style="font-size:11px;color:#94A3B8">${formatDateTime(s.created_at)}</div>
+        </div>
+        ${getStatusBadge(s.status)}
+      </div>`).join('');
+  }
+
+  async function loadCharts() {
+    const days = parseInt(document.getElementById('dist-days').value);
+    await Promise.all([loadDistChart(days), loadTrendChart(days)]);
+
+    document.getElementById('dist-days').onchange = (e) => loadDistChart(parseInt(e.target.value));
+    document.getElementById('trend-days').onchange = (e) => loadTrendChart(parseInt(e.target.value));
+  }
+
+  async function loadDistChart(days) {
+    try {
+      const data = await dashboardApi.scoreDistribution(null, days);
+      if (scoreDistChart) scoreDistChart.destroy();
+      const ctx = document.getElementById('score-dist-chart').getContext('2d');
+      scoreDistChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: data.labels,
+          datasets: [{ label: 'Students', data: data.data, backgroundColor: ['#FEE2E2','#FEF3C7','#DBEAFE','#D1FAE5','#A7F3D0'], borderRadius: 6 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+      });
+    } catch {}
+  }
+
+  async function loadTrendChart(days) {
+    try {
+      const data = await dashboardApi.scoreTrend(days);
+      if (scoreTrendChart) scoreTrendChart.destroy();
+      const ctx = document.getElementById('score-trend-chart').getContext('2d');
+      scoreTrendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [{ label: 'Avg Score %', data: data.data, borderColor: '#2563EB', backgroundColor: 'rgba(37,99,235,0.1)', fill: true, tension: 0.4, pointRadius: 4 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100 } } }
+      });
+    } catch {}
+  }
+
+  init();
+</script>
+</body>
+</html>

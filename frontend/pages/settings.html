@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+  import { requireAuth } from '../assets/js/auth.js';
+  import { settingsApi, teacherApi, authApi } from '../assets/js/api.js';
+  import { showToast, toggleDarkMode, hideLoader, initDarkMode, setLoading } from '../assets/js/ui.js';
+
+  initDarkMode();
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Settings');
+
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+      <div style="max-width:720px">
+        <div class="tabs" style="margin-bottom:24px">
+          <button class="tab-btn active" onclick="switchTab('school', this)">School</button>
+          <button class="tab-btn" onclick="switchTab('scanner', this)">Scanner</button>
+          <button class="tab-btn" onclick="switchTab('profile', this)">Profile</button>
+          <button class="tab-btn" onclick="switchTab('security', this)">Security</button>
+        </div>
+
+        <!-- School Tab -->
+        <div id="tab-school" class="tab-content active">
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">School Information</h3>
+            <div class="form-group">
+              <label class="form-label">School Name</label>
+              <input type="text" id="school-name" class="form-input" placeholder="My School">
+            </div>
+            <div class="form-group">
+              <label class="form-label">School Logo</label>
+              <div style="display:flex;align-items:center;gap:12px">
+                <div id="logo-preview" style="width:64px;height:64px;border-radius:10px;background:#F1F5F9;display:flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden">🏫</div>
+                <label class="btn btn-secondary" style="cursor:pointer">
+                  Upload Logo
+                  <input type="file" id="logo-input" accept="image/*" style="display:none" onchange="uploadLogo(this)">
+                </label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Passing Percentage (%)</label>
+              <input type="number" id="passing-pct" class="form-input" min="0" max="100" style="max-width:120px">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Default Paper Size</label>
+              <select id="paper-size" class="form-input form-select" style="max-width:160px">
+                <option value="A4">A4</option>
+                <option value="Legal">Legal</option>
+                <option value="Letter">Letter</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Theme</label>
+              <div style="display:flex;gap:8px">
+                <button onclick="setTheme('light', this)" class="btn btn-secondary theme-btn" data-theme="light">☀️ Light</button>
+                <button onclick="setTheme('dark', this)" class="btn btn-secondary theme-btn" data-theme="dark">🌙 Dark</button>
+                <button onclick="setTheme('system', this)" class="btn btn-secondary theme-btn" data-theme="system">💻 System</button>
+              </div>
+            </div>
+            <button onclick="saveSchoolSettings()" id="save-school-btn" class="btn btn-primary">Save Changes</button>
+          </div>
+        </div>
+
+        <!-- Scanner Tab -->
+        <div id="tab-scanner" class="tab-content">
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">Scanner Settings</h3>
+            <div class="form-group">
+              <label class="form-label">Scan Sensitivity: <span id="sensitivity-val">0.7</span></label>
+              <input type="range" id="scan-sensitivity" min="0.1" max="1.0" step="0.05" value="0.7" style="width:100%;accent-color:#2563EB"
+                oninput="document.getElementById('sensitivity-val').textContent = this.value">
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:#94A3B8;margin-top:4px">
+                <span>Low (more lenient)</span><span>High (more strict)</span>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Bubble Size</label>
+              <select id="bubble-size" class="form-input form-select" style="max-width:160px">
+                <option value="small">Small</option>
+                <option value="medium" selected>Medium</option>
+                <option value="large">Large</option>
+              </select>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px">
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                <input type="checkbox" id="scan-sound" style="width:16px;height:16px;accent-color:#2563EB">
+                <span style="font-size:14px">Enable scan sound</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+                <input type="checkbox" id="auto-save" style="width:16px;height:16px;accent-color:#2563EB" checked>
+                <span style="font-size:14px">Auto-save results</span>
+              </label>
+            </div>
+            <button onclick="saveScannerSettings()" id="save-scanner-btn" class="btn btn-primary">Save Changes</button>
+          </div>
+        </div>
+
+        <!-- Profile Tab -->
+        <div id="tab-profile" class="tab-content">
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">Teacher Profile</h3>
+            <div class="form-group">
+              <label class="form-label">Display Name</label>
+              <input type="text" id="display-name" class="form-input" placeholder="Your name">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Email</label>
+              <input type="email" id="profile-email" class="form-input" disabled style="background:#F8FAFC;color:#94A3B8">
+            </div>
+            <div class="form-group">
+              <label class="form-label">School Name</label>
+              <input type="text" id="profile-school" class="form-input" placeholder="School name">
+            </div>
+            <button onclick="saveProfile()" id="save-profile-btn" class="btn btn-primary">Update Profile</button>
+          </div>
+        </div>
+
+        <!-- Security Tab -->
+        <div id="tab-security" class="tab-content">
+          <div class="card">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:16px">Change Password</h3>
+            <div class="form-group">
+              <label class="form-label">Current Password</label>
+              <input type="password" id="current-pw" class="form-input" placeholder="Current password">
+            </div>
+            <div class="form-group">
+              <label class="form-label">New Password</label>
+              <input type="password" id="new-pw" class="form-input" placeholder="Min. 8 characters" minlength="8">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirm New Password</label>
+              <input type="password" id="confirm-pw" class="form-input" placeholder="Repeat new password">
+            </div>
+            <button onclick="changePassword()" id="change-pw-btn" class="btn btn-primary">Change Password</button>
+          </div>
+          <div class="card" style="margin-top:16px;border-color:#FECACA">
+            <h3 style="font-size:15px;font-weight:600;margin-bottom:8px;color:#DC2626">Danger Zone</h3>
+            <p style="font-size:13px;color:#64748B;margin-bottom:12px">Reset all settings to defaults.</p>
+            <button onclick="resetSettings()" class="btn btn-danger">Reset Settings</button>
+          </div>
+        </div>
+      </div>`;
+
+    window.switchTab = switchTab;
+    window.setTheme = setTheme;
+    window.saveSchoolSettings = saveSchoolSettings;
+    window.saveScannerSettings = saveScannerSettings;
+    window.saveProfile = saveProfile;
+    window.changePassword = changePassword;
+    window.resetSettings = resetSettings;
+    window.uploadLogo = uploadLogo;
+
+    await loadSettings();
+    hideLoader();
+  }
+
+  async function loadSettings() {
+    try {
+      const [settings, teacher] = await Promise.all([settingsApi.get(), teacherApi.me()]);
+
+      document.getElementById('school-name').value = settings.school_name || '';
+      document.getElementById('passing-pct').value = settings.passing_percentage || 60;
+      document.getElementById('paper-size').value = settings.paper_size || 'A4';
+      document.getElementById('scan-sensitivity').value = settings.scan_sensitivity || 0.7;
+      document.getElementById('sensitivity-val').textContent = settings.scan_sensitivity || 0.7;
+      document.getElementById('bubble-size').value = settings.bubble_size || 'medium';
+      document.getElementById('scan-sound').checked = settings.scan_sound_enabled !== false;
+      document.getElementById('auto-save').checked = settings.auto_save_results !== false;
+
+      if (settings.school_logo_url) {
+        document.getElementById('logo-preview').innerHTML = `<img src="${settings.school_logo_url}" style="width:100%;height:100%;object-fit:cover">`;
+      }
+
+      document.getElementById('display-name').value = teacher.display_name || '';
+      document.getElementById('profile-email').value = teacher.email || '';
+      document.getElementById('profile-school').value = teacher.school_name || '';
+
+      // Set active theme button
+      const theme = settings.theme || 'system';
+      document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.classList.toggle('btn-primary', btn.dataset.theme === theme);
+        btn.classList.toggle('btn-secondary', btn.dataset.theme !== theme);
+      });
+    } catch (err) { showToast('Failed to load settings', 'error'); }
+  }
+
+  function switchTab(name, btn) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`tab-${name}`).classList.add('active');
+    btn.classList.add('active');
+  }
+
+  function setTheme(theme, btn) {
+    document.querySelectorAll('.theme-btn').forEach(b => { b.classList.remove('btn-primary'); b.classList.add('btn-secondary'); });
+    btn.classList.remove('btn-secondary'); btn.classList.add('btn-primary');
+    if (theme === 'dark') { document.documentElement.classList.add('dark'); localStorage.setItem('dark_mode', 'true'); }
+    else if (theme === 'light') { document.documentElement.classList.remove('dark'); localStorage.setItem('dark_mode', 'false'); }
+    else { localStorage.removeItem('dark_mode'); }
+  }
+
+  async function saveSchoolSettings() {
+    const btn = document.getElementById('save-school-btn');
+    setLoading(btn, true, 'Saving...');
+    try {
+      const theme = document.querySelector('.theme-btn.btn-primary')?.dataset.theme || 'system';
+      await settingsApi.update({
+        school_name: document.getElementById('school-name').value.trim(),
+        passing_percentage: parseFloat(document.getElementById('passing-pct').value),
+        paper_size: document.getElementById('paper-size').value,
+        theme,
+      });
+      showToast('Settings saved', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setLoading(btn, false, 'Save Changes'); }
+  }
+
+  async function saveScannerSettings() {
+    const btn = document.getElementById('save-scanner-btn');
+    setLoading(btn, true, 'Saving...');
+    try {
+      await settingsApi.update({
+        scan_sensitivity: parseFloat(document.getElementById('scan-sensitivity').value),
+        bubble_size: document.getElementById('bubble-size').value,
+        scan_sound_enabled: document.getElementById('scan-sound').checked,
+        auto_save_results: document.getElementById('auto-save').checked,
+      });
+      showToast('Scanner settings saved', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setLoading(btn, false, 'Save Changes'); }
+  }
+
+  async function saveProfile() {
+    const btn = document.getElementById('save-profile-btn');
+    setLoading(btn, true, 'Saving...');
+    try {
+      await teacherApi.update({
+        display_name: document.getElementById('display-name').value.trim(),
+        school_name: document.getElementById('profile-school').value.trim(),
+      });
+      showToast('Profile updated', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setLoading(btn, false, 'Update Profile'); }
+  }
+
+  async function changePassword() {
+    const current = document.getElementById('current-pw').value;
+    const next = document.getElementById('new-pw').value;
+    const confirm = document.getElementById('confirm-pw').value;
+    if (!current || !next) { showToast('Fill all fields', 'warning'); return; }
+    if (next !== confirm) { showToast('Passwords do not match', 'warning'); return; }
+    if (next.length < 8) { showToast('Password must be at least 8 characters', 'warning'); return; }
+
+    const btn = document.getElementById('change-pw-btn');
+    setLoading(btn, true, 'Changing...');
+    try {
+      await authApi.changePassword(current, next);
+      showToast('Password changed successfully', 'success');
+      ['current-pw','new-pw','confirm-pw'].forEach(id => document.getElementById(id).value = '');
+    } catch (err) { showToast(err.message, 'error'); }
+    finally { setLoading(btn, false, 'Change Password'); }
+  }
+
+  async function resetSettings() {
+    if (!confirm('Reset all settings to defaults?')) return;
+    try {
+      await settingsApi.reset();
+      showToast('Settings reset', 'success');
+      loadSettings();
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  async function uploadLogo(input) {
+    const file = input.files[0];
+    if (!file) return;
+    showToast('Uploading logo...', 'info');
+    try {
+      const result = await settingsApi.uploadLogo(file);
+      if (result.data?.url) {
+        document.getElementById('logo-preview').innerHTML = `<img src="${result.data.url}" style="width:100%;height:100%;object-fit:cover">`;
+      }
+      showToast('Logo uploaded', 'success');
+    } catch (err) { showToast(err.message, 'error'); }
+  }
+
+  init();
+</script>
+</body>
+</html>

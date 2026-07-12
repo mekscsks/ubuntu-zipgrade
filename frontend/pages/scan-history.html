@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scan History - AI Exam Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <script>window.APP_CONFIG = { apiBase: 'http://localhost:8000/api/v1', firebase: { apiKey:"AIzaSyANXN3w3PTEeffSAj0wwO11M1tF-P2kgTY",authDomain:"exam-713d5.firebaseapp.com",projectId:"exam-713d5",storageBucket:"exam-713d5.firebasestorage.app",messagingSenderId:"406032768954",appId:"1:406032768954:web:c54c58d7315def8ec7c783" } };</script>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+  import { requireAuth } from '../assets/js/auth.js';
+  import { scannerApi } from '../assets/js/api.js';
+  import { showToast, createConfirmModal, renderPagination, formatDateTime, getStatusBadge, debounce, hideLoader, initDarkMode } from '../assets/js/ui.js';
+
+  initDarkMode();
+  let currentPage = 1;
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+
+    const { renderLayout } = await import('../components/layout.js');
+    renderLayout('Scan History');
+
+    const content = document.getElementById('page-content');
+    content.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="search-input-wrapper">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input type="text" id="search-input" class="form-input" placeholder="Search..." style="width:200px">
+          </div>
+          <select id="status-filter" class="form-input form-select" style="width:150px">
+            <option value="">All Status</option>
+            <option value="completed">Completed</option>
+            <option value="manual_review">Manual Review</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
+        <a href="scanner.html" class="btn btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h3v3H7zM14 7h3v3h-3zM7 14h3v3H7z"/></svg>
+          New Scan
+        </a>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead><tr>
+            <th>Student</th><th>Exam</th><th>Score</th><th>Status</th>
+            <th>Processing Time</th><th>Date</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+      <div id="pagination" style="display:flex;justify-content:center;margin-top:16px" class="pagination"></div>`;
+
+    window.deleteScan = deleteScan;
+
+    document.getElementById('status-filter').addEventListener('change', () => { currentPage = 1; loadHistory(); });
+    document.getElementById('search-input').addEventListener('input', debounce(() => { currentPage = 1; loadHistory(); }, 400));
+
+    await loadHistory();
+    hideLoader();
+  }
+
+  async function loadHistory() {
+    const status = document.getElementById('status-filter')?.value || '';
+    const tbody = document.getElementById('history-tbody');
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:#94A3B8">Loading...</td></tr>';
+
+    try {
+      const history = await scannerApi.history(currentPage, status);
+      if (!history.length) {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state">🕐<p>No scan history yet. Start scanning!</p></div></td></tr>';
+        return;
+      }
+      tbody.innerHTML = history.map(s => `
+        <tr>
+          <td>
+            <div style="font-size:13px;font-weight:500">${s.student_name || 'Unknown'}</div>
+            <div style="font-size:11px;color:#94A3B8">${s.student_number || s.student_id || '-'}</div>
+          </td>
+          <td style="font-size:13px">${s.exam_title || s.exam_id || '-'}</td>
+          <td>
+            ${s.percentage !== null && s.percentage !== undefined
+              ? `<span style="font-weight:600;color:${s.passed ? '#059669' : '#DC2626'}">${s.percentage?.toFixed(1)}%</span>`
+              : '<span style="color:#94A3B8">-</span>'}
+          </td>
+          <td>${getStatusBadge(s.status)}</td>
+          <td style="font-size:12px;color:#64748B">${s.processing_time_ms ? s.processing_time_ms + 'ms' : '-'}</td>
+          <td style="font-size:12px;color:#64748B">${formatDateTime(s.created_at)}</td>
+          <td>
+            <button onclick="deleteScan('${s.id}')" class="btn btn-danger btn-sm" data-tooltip="Delete">🗑</button>
+          </td>
+        </tr>`).join('');
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;color:#EF4444">${err.message}</td></tr>`;
+    }
+  }
+
+  async function deleteScan(id) {
+    createConfirmModal('Delete Scan', 'Remove this scan record?', async () => {
+      try { await scannerApi.deleteHistory(id); showToast('Scan deleted', 'success'); loadHistory(); }
+      catch (err) { showToast(err.message, 'error'); }
+    });
+  }
+
+  init();
+</script>
+</body>
+</html>
