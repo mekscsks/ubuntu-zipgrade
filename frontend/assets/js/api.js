@@ -2,7 +2,7 @@
  * API Client - Centralized HTTP client for backend communication
  */
 
-const API_BASE = window.APP_CONFIG?.apiBase || 'http://localhost:8000/api/v1';
+const API_BASE = window.APP_CONFIG?.apiBase || 'https://ai-exam-checker-production.up.railway.app/api/v1';
 
 class ApiClient {
   constructor() {
