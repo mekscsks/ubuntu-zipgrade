@@ -1,0 +1,20 @@
+[Unit]
+Description=AI Exam Checker API
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/var/www/ai-exam-checker/backend
+EnvironmentFile=/var/www/ai-exam-checker/backend/.env
+ExecStart=/var/www/ai-exam-checker/venv/bin/gunicorn main:app \
+    -k uvicorn.workers.UvicornWorker \
+    -w 2 \
+    --bind 127.0.0.1:8000 \
+    --timeout 120 \
+    --access-logfile /var/log/ai-exam-checker/access.log \
+    --error-logfile /var/log/ai-exam-checker/error.log
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
