@@ -1,11 +1,11 @@
 #!/bin/bash
-# AI Exam Checker - Ubuntu Deployment Script
+# ubuntu-zipgrade - Ubuntu Deployment Script
 # Run as root: sudo bash deploy.sh
 
 set -e
 
-APP_DIR="/var/www/ai-exam-checker"
-LOG_DIR="/var/log/ai-exam-checker"
+APP_DIR="/var/www/ubuntu-zipgrade"
+LOG_DIR="/var/log/ubuntu-zipgrade"
 
 echo "==> Installing system dependencies..."
 apt update
@@ -32,20 +32,20 @@ if [ ! -f "$APP_DIR/backend/.env" ]; then
 fi
 
 echo "==> Setting up Nginx..."
-cp nginx.conf /etc/nginx/sites-available/ai-exam-checker
-ln -sf /etc/nginx/sites-available/ai-exam-checker /etc/nginx/sites-enabled/
+cp nginx.conf /etc/nginx/sites-available/ubuntu-zipgrade
+ln -sf /etc/nginx/sites-available/ubuntu-zipgrade /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 
 echo "==> Setting up systemd service..."
-cp ai-exam-checker.service /etc/systemd/system/
+cp ubuntu-zipgrade.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable ai-exam-checker
-systemctl start ai-exam-checker
+systemctl enable ubuntu-zipgrade
+systemctl start ubuntu-zipgrade
 
 echo ""
 echo "==> Done! Status:"
-systemctl status ai-exam-checker --no-pager
+systemctl status ubuntu-zipgrade --no-pager
 
 echo ""
 echo "==> (Optional) Enable HTTPS with Let's Encrypt:"

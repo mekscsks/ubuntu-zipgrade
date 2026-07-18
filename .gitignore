@@ -12,6 +12,9 @@ env/
 backend/.env
 *.env
 
+# Frontend config - SENSITIVE
+frontend/config.js
+
 # Logs
 *.log
 
